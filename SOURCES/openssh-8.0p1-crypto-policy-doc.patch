@@ -1,0 +1,25 @@
+diff --color -ru a/sshd.8 b/sshd.8
+--- a/sshd.8	2022-05-31 13:39:10.231843926 +0200
++++ b/sshd.8	2022-05-31 14:34:01.460815420 +0200
+@@ -78,6 +78,7 @@
+ .Xr sshd_config 5 ) ;
+ command-line options override values specified in the
+ configuration file.
++This mechanism is used by systemd to apply system-wide crypto-policies to ssh server.
+ .Nm
+ rereads its configuration file when it receives a hangup signal,
+ .Dv SIGHUP ,
+@@ -207,6 +208,13 @@
+ rules may be applied by specifying the connection parameters using one or more
+ .Fl C
+ options.
++The configuration does not contain the system-wide crypto-policy configuration.
++To show the most accurate runtime configuration, use:
++.Bd -literal -offset 3n
++source /etc/crypto-policies/back-ends/opensshserver.config
++source /etc/sysconfig/sshd
++sshd -T $OPTIONS $CRYPTO_POLICY
++.Ed
+ .It Fl t
+ Test mode.
+ Only check the validity of the configuration file and sanity of the keys.

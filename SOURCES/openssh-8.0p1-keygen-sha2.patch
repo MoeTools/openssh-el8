@@ -1,0 +1,107 @@
+From 4a41d245d6b13bd3882c8dc058dbd2e2b39a9f67 Mon Sep 17 00:00:00 2001
+From: "djm@openbsd.org" <djm@openbsd.org>
+Date: Fri, 24 Jan 2020 00:27:04 +0000
+Subject: [PATCH] upstream: when signing a certificate with an RSA key, default
+ to
+
+a safe signature algorithm (rsa-sha-512) if not is explicitly specified by
+the user; ok markus@
+
+OpenBSD-Commit-ID: e05f638f0be6c0266e1d3d799716b461011e83a9
+---
+ ssh-keygen.c | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/ssh-keygen.c b/ssh-keygen.c
+index 564c3c481..f2192edb9 100644
+--- a/ssh-keygen.c
++++ b/ssh-keygen.c
+@@ -1788,10 +1788,14 @@ do_ca_sign(struct passwd *pw, const char *ca_key_path, int prefer_agent,
+ 	}
+ 	free(tmp);
+ 
+-	if (key_type_name != NULL &&
+-	    sshkey_type_from_name(key_type_name) != ca->type)  {
+-		fatal("CA key type %s doesn't match specified %s",
+-		    sshkey_ssh_name(ca), key_type_name);
++	if (key_type_name != NULL) {
++		if (sshkey_type_from_name(key_type_name) != ca->type) {
++			fatal("CA key type %s doesn't match specified %s",
++			    sshkey_ssh_name(ca), key_type_name);
++		}
++	} else if (ca->type == KEY_RSA) {
++		/* Default to a good signature algorithm */
++		key_type_name = "rsa-sha2-512";
+ 	}
+ 
+ 	for (i = 0; i < argc; i++) {
+
+From 476e3551b2952ef73acc43d995e832539bf9bc4d Mon Sep 17 00:00:00 2001
+From: "djm@openbsd.org" <djm@openbsd.org>
+Date: Mon, 20 May 2019 00:20:35 +0000
+Subject: [PATCH] upstream: When signing certificates with an RSA key, default
+ to
+
+using the rsa-sha2-512 signature algorithm. Certificates signed by RSA keys
+will therefore be incompatible with OpenSSH < 7.2 unless the default is
+overridden.
+
+Document the ability of the ssh-keygen -t flag to override the
+signature algorithm when signing certificates, and the new default.
+
+ok deraadt@
+
+OpenBSD-Commit-ID: 400c9c15013978204c2cb80f294b03ae4cfc8b95
+---
+ ssh-keygen.1 | 13 +++++++++++--
+ sshkey.c     |  9 ++++++++-
+ 2 files changed, 19 insertions(+), 3 deletions(-)
+
+diff --git a/ssh-keygen.1 b/ssh-keygen.1
+index f29774249..673bf6e2f 100644
+--- a/ssh-keygen.1
++++ b/ssh-keygen.1
+@@ -35,7 +35,7 @@
+ .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ .\"
+-.Dd $Mdocdate: March 5 2019 $
++.Dd $Mdocdate: May 20 2019 $
+ .Dt SSH-KEYGEN 1
+ .Os
+ .Sh NAME
+@@ -577,6 +577,15 @@ The possible values are
+ .Dq ed25519 ,
+ or
+ .Dq rsa .
++.Pp
++This flag may also be used to specify the desired signature type when
++signing certificates using a RSA CA key.
++The available RSA signature variants are
++.Dq ssh-rsa
++(SHA1 signatures, not recommended),
++.Dq rsa-sha2-256
++.Dq rsa-sha2-512
++(the default).
+ .It Fl U
+ When used in combination with
+ .Fl s ,
+diff --git a/sshkey.c b/sshkey.c
+index 9849cb237..379a579cf 100644
+--- a/sshkey.c
++++ b/sshkey.c
+@@ -2528,6 +2528,13 @@ sshkey_certify_custom(struct sshkey *k, struct sshkey *ca, const char *alg,
+ 	    strcmp(alg, k->cert->signature_type) != 0)
+ 		return SSH_ERR_INVALID_ARGUMENT;
+ 
++	/*
++	 * If no signing algorithm or signature_type was specified and we're
++	 * using a RSA key, then default to a good signature algorithm.
++	 */
++	if (alg == NULL && ca->type == KEY_RSA)
++		alg = "rsa-sha2-512";
++
+ 	if ((ret = sshkey_to_blob(ca, &ca_blob, &ca_len)) != 0)
+ 		return SSH_ERR_KEY_CERT_INVALID_SIGN_KEY;
+ 
+

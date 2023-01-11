@@ -1,0 +1,166 @@
+diff --color -ru a/kex.c b/kex.c
+--- a/kex.c	2022-06-23 10:25:29.529922670 +0200
++++ b/kex.c	2022-06-23 10:26:12.911762100 +0200
+@@ -906,6 +906,18 @@
+ 	return (1);
+ }
+ 
++/* returns non-zero if proposal contains any algorithm from algs */
++static int
++has_any_alg(const char *proposal, const char *algs)
++{
++	char *cp;
++
++	if ((cp = match_list(proposal, algs, NULL)) == NULL)
++		return 0;
++	free(cp);
++	return 1;
++}
++
+ static int
+ kex_choose_conf(struct ssh *ssh)
+ {
+@@ -941,6 +953,16 @@
+ 		free(ext);
+ 	}
+ 
++	/* Check whether client supports rsa-sha2 algorithms */
++	if (kex->server && (kex->flags & KEX_INITIAL)) {
++		if (has_any_alg(peer[PROPOSAL_SERVER_HOST_KEY_ALGS],
++		    "rsa-sha2-256,rsa-sha2-256-cert-v01@openssh.com"))
++			kex->flags |= KEX_RSA_SHA2_256_SUPPORTED;
++		if (has_any_alg(peer[PROPOSAL_SERVER_HOST_KEY_ALGS],
++		    "rsa-sha2-512,rsa-sha2-512-cert-v01@openssh.com"))
++			kex->flags |= KEX_RSA_SHA2_512_SUPPORTED;
++	}
++
+ 	/* Algorithm Negotiation */
+ 	if ((r = choose_kex(kex, cprop[PROPOSAL_KEX_ALGS],
+ 	    sprop[PROPOSAL_KEX_ALGS])) != 0) {
+diff --color -ru a/kex.h b/kex.h
+--- a/kex.h	2022-06-23 10:25:29.511922322 +0200
++++ b/kex.h	2022-06-23 10:26:12.902761926 +0200
+@@ -117,6 +117,8 @@
+ 
+ #define KEX_INIT_SENT	0x0001
+ #define KEX_INITIAL	0x0002
++#define KEX_RSA_SHA2_256_SUPPORTED 	0x0008 /* only set in server for now */
++#define KEX_RSA_SHA2_512_SUPPORTED 	0x0010 /* only set in server for now */
+ 
+ struct sshenc {
+ 	char	*name;
+diff --color -ru a/serverloop.c b/serverloop.c
+--- a/serverloop.c	2022-06-23 10:25:29.537922825 +0200
++++ b/serverloop.c	2022-06-23 10:26:12.918762235 +0200
+@@ -736,16 +736,17 @@
+ 	struct sshbuf *resp = NULL;
+ 	struct sshbuf *sigbuf = NULL;
+ 	struct sshkey *key = NULL, *key_pub = NULL, *key_prv = NULL;
+-	int r, ndx, kexsigtype, use_kexsigtype, success = 0;
++	int r, ndx, success = 0;
+ 	const u_char *blob;
++	const char *sigalg, *kex_rsa_sigalg = NULL;
+ 	u_char *sig = 0;
+ 	size_t blen, slen;
+ 
+ 	if ((resp = sshbuf_new()) == NULL || (sigbuf = sshbuf_new()) == NULL)
+ 		fatal("%s: sshbuf_new", __func__);
+-
+-	kexsigtype = sshkey_type_plain(
+-	    sshkey_type_from_name(ssh->kex->hostkey_alg));
++	if (sshkey_type_plain(sshkey_type_from_name(
++	    ssh->kex->hostkey_alg)) == KEY_RSA)
++		kex_rsa_sigalg = ssh->kex->hostkey_alg;
+ 	while (ssh_packet_remaining(ssh) > 0) {
+ 		sshkey_free(key);
+ 		key = NULL;
+@@ -780,16 +781,24 @@
+ 		 * For RSA keys, prefer to use the signature type negotiated
+ 		 * during KEX to the default (SHA1).
+ 		 */
+-		use_kexsigtype = kexsigtype == KEY_RSA &&
+-		    sshkey_type_plain(key->type) == KEY_RSA;
++		sigalg = NULL;
++		if (sshkey_type_plain(key->type) == KEY_RSA) {
++			if (kex_rsa_sigalg != NULL)
++				sigalg = kex_rsa_sigalg;
++			else if (ssh->kex->flags & KEX_RSA_SHA2_512_SUPPORTED)
++				sigalg = "rsa-sha2-512";
++			else if (ssh->kex->flags & KEX_RSA_SHA2_256_SUPPORTED)
++				sigalg = "rsa-sha2-256";
++		}
++		debug3("%s: sign %s key (index %d) using sigalg %s", __func__,
++			sshkey_type(key), ndx, sigalg == NULL ? "default" : sigalg);
+ 		if ((r = sshbuf_put_cstring(sigbuf,
+ 		    "hostkeys-prove-00@openssh.com")) != 0 ||
+ 		    (r = sshbuf_put_string(sigbuf,
+ 		    ssh->kex->session_id, ssh->kex->session_id_len)) != 0 ||
+ 		    (r = sshkey_puts(key, sigbuf)) != 0 ||
+ 		    (r = ssh->kex->sign(ssh, key_prv, key_pub, &sig, &slen,
+-		    sshbuf_ptr(sigbuf), sshbuf_len(sigbuf),
+-		    use_kexsigtype ? ssh->kex->hostkey_alg : NULL)) != 0 ||
++		    sshbuf_ptr(sigbuf), sshbuf_len(sigbuf), sigalg)) != 0 ||
+ 		    (r = sshbuf_put_string(resp, sig, slen)) != 0) {
+ 			error("%s: couldn't prepare signature: %s",
+ 			    __func__, ssh_err(r));
+diff --color -ru a/sshkey.c b/sshkey.c
+--- a/sshkey.c	2022-06-23 10:25:29.532922728 +0200
++++ b/sshkey.c	2022-06-23 10:26:12.914762158 +0200
+@@ -82,7 +82,6 @@
+     struct sshbuf *buf, enum sshkey_serialize_rep);
+ static int sshkey_from_blob_internal(struct sshbuf *buf,
+     struct sshkey **keyp, int allow_cert);
+-static int get_sigtype(const u_char *sig, size_t siglen, char **sigtypep);
+ 
+ /* Supported key types */
+ struct keytype {
+@@ -2092,7 +2091,8 @@
+ 	if ((ret = sshkey_verify(key->cert->signature_key, sig, slen,
+ 	    sshbuf_ptr(key->cert->certblob), signed_len, NULL, 0)) != 0)
+ 		goto out;
+-	if ((ret = get_sigtype(sig, slen, &key->cert->signature_type)) != 0)
++	if ((ret = sshkey_get_sigtype(sig, slen,
++	    &key->cert->signature_type)) != 0)
+ 		goto out;
+ 
+ 	/* Success */
+@@ -2394,8 +2394,8 @@
+ 	return r;
+ }
+ 
+-static int
+-get_sigtype(const u_char *sig, size_t siglen, char **sigtypep)
++int
++sshkey_get_sigtype(const u_char *sig, size_t siglen, char **sigtypep)
+ {
+ 	int r;
+ 	struct sshbuf *b = NULL;
+@@ -2477,7 +2477,7 @@
+ 		return 0;
+ 	if ((expected_alg = sshkey_sigalg_by_name(requested_alg)) == NULL)
+ 		return SSH_ERR_INVALID_ARGUMENT;
+-	if ((r = get_sigtype(sig, siglen, &sigtype)) != 0)
++	if ((r = sshkey_get_sigtype(sig, siglen, &sigtype)) != 0)
+ 		return r;
+ 	r = strcmp(expected_alg, sigtype) == 0;
+ 	free(sigtype);
+@@ -2739,7 +2739,7 @@
+ 	    sshbuf_len(cert), alg, 0, signer_ctx)) != 0)
+ 		goto out;
+ 	/* Check and update signature_type against what was actually used */
+-	if ((ret = get_sigtype(sig_blob, sig_len, &sigtype)) != 0)
++	if ((ret = sshkey_get_sigtype(sig_blob, sig_len, &sigtype)) != 0)
+ 		goto out;
+ 	if (alg != NULL && strcmp(alg, sigtype) != 0) {
+ 		ret = SSH_ERR_SIGN_ALG_UNSUPPORTED;
+diff --color -ru a/sshkey.h b/sshkey.h
+--- a/sshkey.h	2022-06-23 10:25:29.521922515 +0200
++++ b/sshkey.h	2022-06-23 10:26:12.907762022 +0200
+@@ -211,6 +211,7 @@
+     const u_char *, size_t, const char *, u_int);
+ int	 sshkey_check_sigtype(const u_char *, size_t, const char *);
+ const char *sshkey_sigalg_by_name(const char *);
++int      sshkey_get_sigtype(const u_char *, size_t, char **);
+ 
+ /* for debug */
+ void	sshkey_dump_ec_point(const EC_GROUP *, const EC_POINT *);

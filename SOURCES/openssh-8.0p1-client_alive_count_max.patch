@@ -1,0 +1,28 @@
+diff --git a/serverloop.c b/serverloop.c
+index e16eabe2..a8c99e2e 100644
+--- a/serverloop.c
++++ b/serverloop.c
+@@ -184,7 +184,8 @@ client_alive_check(struct ssh *ssh)
+ 	int r, channel_id;
+ 
+ 	/* timeout, check to see how many we have had */
+-	if (ssh_packet_inc_alive_timeouts(ssh) >
++	if (options.client_alive_count_max > 0 &&
++	    ssh_packet_inc_alive_timeouts(ssh) >
+ 	    options.client_alive_count_max) {
+ 		sshpkt_fmt_connection_id(ssh, remote_id, sizeof(remote_id));
+ 		logit("Timeout, client not responding from %s", remote_id);
+diff --git a/sshd_config.5 b/sshd_config.5
+index d47cb0d2..2cddbd59 100644
+--- a/sshd_config.5
++++ b/sshd_config.5
+@@ -519,6 +519,9 @@ is set to 15, and
+ .Cm ClientAliveCountMax
+ is left at the default, unresponsive SSH clients
+ will be disconnected after approximately 45 seconds.
++Setting a zero
++.Cm ClientAliveCountMax
++disables connection termination.
+ .It Cm ClientAliveInterval
+ Sets a timeout interval in seconds after which if no data has been received
+ from the client,

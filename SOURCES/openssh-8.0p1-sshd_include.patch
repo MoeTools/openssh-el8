@@ -1,0 +1,792 @@
+diff -up openssh-8.0p1/auth.c.sshdinclude openssh-8.0p1/auth.c
+--- openssh-8.0p1/auth.c.sshdinclude	2021-10-20 15:18:49.740331098 +0200
++++ openssh-8.0p1/auth.c	2021-10-20 15:19:41.324781344 +0200
+@@ -80,6 +80,7 @@
+ 
+ /* import */
+ extern ServerOptions options;
++extern struct include_list includes;
+ extern int use_privsep;
+ extern struct sshbuf *loginmsg;
+ extern struct passwd *privsep_pw;
+@@ -573,7 +574,7 @@ getpwnamallow(struct ssh *ssh, const cha
+ 
+ 	ci = get_connection_info(ssh, 1, options.use_dns);
+ 	ci->user = user;
+-	parse_server_match_config(&options, ci);
++	parse_server_match_config(&options, &includes, ci);
+ 	log_change_level(options.log_level);
+ 	process_permitopen(ssh, &options);
+ 
+diff -up openssh-8.0p1/readconf.c.sshdinclude openssh-8.0p1/readconf.c
+--- openssh-8.0p1/readconf.c.sshdinclude	2021-10-20 15:21:43.541848103 +0200
++++ openssh-8.0p1/readconf.c	2021-10-20 15:22:06.302046768 +0200
+@@ -711,7 +711,7 @@ match_cfg_line(Options *options, char **
+ static void
+ rm_env(Options *options, const char *arg, const char *filename, int linenum)
+ {
+-	int i, j;
++	int i, j, onum_send_env = options->num_send_env;
+ 	char *cp;
+ 
+ 	/* Remove an environment variable */
+@@ -734,6 +734,11 @@ rm_env(Options *options, const char *arg
+ 		options->num_send_env--;
+ 		/* NB. don't increment i */
+ 	}
++	if (onum_send_env != options->num_send_env) {
++		options->send_env = xrecallocarray(options->send_env,
++		    onum_send_env, options->num_send_env,
++		    sizeof(*options->send_env));
++	}
+ }
+ 
+ /*
+diff -up openssh-8.0p1/regress/Makefile.sshdinclude openssh-8.0p1/regress/Makefile
+--- openssh-8.0p1/regress/Makefile.sshdinclude	2021-10-20 15:18:49.742331115 +0200
++++ openssh-8.0p1/regress/Makefile	2021-10-20 15:19:41.324781344 +0200
+@@ -82,6 +82,7 @@ LTESTS= 	connect \
+ 		principals-command \
+ 		cert-file \
+ 		cfginclude \
++		servcfginclude \
+ 		allow-deny-users \
+ 		authinfo
+ 
+@@ -118,7 +119,7 @@ CLEANFILES=	*.core actual agent-key.* au
+ 		sftp-server.sh sftp.log ssh-log-wrapper.sh ssh.log \
+ 		ssh_config ssh_config.* ssh_proxy ssh_proxy_bak \
+ 		ssh_proxy_envpass sshd.log sshd_config sshd_config_minimal \
+-		sshd_config.orig sshd_proxy sshd_proxy.* sshd_proxy_bak \
++		sshd_config.* sshd_proxy sshd_proxy.* sshd_proxy_bak \
+ 		sshd_proxy_orig t10.out t10.out.pub t12.out t12.out.pub \
+ 		t2.out t3.out t6.out1 t6.out2 t7.out t7.out.pub \
+ 		t8.out t8.out.pub t9.out t9.out.pub testdata \
+diff -up openssh-8.0p1/regress/servcfginclude.sh.sshdinclude openssh-8.0p1/regress/servcfginclude.sh
+--- openssh-8.0p1/regress/servcfginclude.sh.sshdinclude	2021-10-20 15:18:49.744331132 +0200
++++ openssh-8.0p1/regress/servcfginclude.sh	2021-10-20 15:22:06.303046777 +0200
+@@ -0,0 +1,188 @@
++#	Placed in the Public Domain.
++
++tid="server config include"
++
++cat > $OBJ/sshd_config.i << _EOF
++HostKey $OBJ/host.ssh-ed25519
++Match host a
++	Banner /aa
++
++Match host b
++	Banner /bb
++	Include $OBJ/sshd_config.i.*
++
++Match host c
++	Include $OBJ/sshd_config.i.*
++	Banner /cc
++
++Match host m
++	Include $OBJ/sshd_config.i.*
++
++Match Host d
++	Banner /dd
++
++Match Host e
++	Banner /ee
++	Include $OBJ/sshd_config.i.*
++
++Match Host f
++	Include $OBJ/sshd_config.i.*
++	Banner /ff
++
++Match Host n
++	Include $OBJ/sshd_config.i.*
++_EOF
++
++cat > $OBJ/sshd_config.i.0 << _EOF
++Match host xxxxxx
++_EOF
++
++cat > $OBJ/sshd_config.i.1 << _EOF
++Match host a
++	Banner /aaa
++
++Match host b
++	Banner /bbb
++
++Match host c
++	Banner /ccc
++
++Match Host d
++	Banner /ddd
++
++Match Host e
++	Banner /eee
++
++Match Host f
++	Banner /fff
++_EOF
++
++cat > $OBJ/sshd_config.i.2 << _EOF
++Match host a
++	Banner /aaaa
++
++Match host b
++	Banner /bbbb
++
++Match host c
++	Banner /cccc
++
++Match Host d
++	Banner /dddd
++
++Match Host e
++	Banner /eeee
++
++Match Host f
++	Banner /ffff
++
++Match all
++	Banner /xxxx
++_EOF
++
++trial() {
++	_host="$1"
++	_exp="$2"
++	_desc="$3"
++	test -z "$_desc" && _desc="test match"
++	trace "$_desc host=$_host expect=$_exp"
++	${SUDO} ${REAL_SSHD} -f $OBJ/sshd_config.i -T \
++	    -C "host=$_host,user=test,addr=127.0.0.1" > $OBJ/sshd_config.out ||
++		fatal "ssh config parse failed: $_desc host=$_host expect=$_exp"
++	_got=`grep -i '^banner ' $OBJ/sshd_config.out | awk '{print $2}'`
++	if test "x$_exp" != "x$_got" ; then
++		fail "$desc_ host $_host include fail: expected $_exp got $_got"
++	fi
++}
++
++trial a /aa
++trial b /bb
++trial c /ccc
++trial d /dd
++trial e /ee
++trial f /fff
++trial m /xxxx
++trial n /xxxx
++trial x none
++
++# Prepare an included config with an error.
++
++cat > $OBJ/sshd_config.i.3 << _EOF
++Banner xxxx
++	Junk
++_EOF
++
++trace "disallow invalid config host=a"
++${SUDO} ${REAL_SSHD} -f $OBJ/sshd_config.i \
++    -C "host=a,user=test,addr=127.0.0.1" 2>/dev/null && \
++	fail "sshd include allowed invalid config"
++
++trace "disallow invalid config host=x"
++${SUDO} ${REAL_SSHD} -f $OBJ/sshd_config.i \
++    -C "host=x,user=test,addr=127.0.0.1" 2>/dev/null && \
++	fail "sshd include allowed invalid config"
++
++rm -f $OBJ/sshd_config.i.*
++
++# Ensure that a missing include is not fatal.
++cat > $OBJ/sshd_config.i << _EOF
++HostKey $OBJ/host.ssh-ed25519
++Include $OBJ/sshd_config.i.*
++Banner /aa
++_EOF
++
++trial a /aa "missing include non-fatal"
++
++# Ensure that Match/Host in an included config does not affect parent.
++cat > $OBJ/sshd_config.i.x << _EOF
++Match host x
++_EOF
++
++trial a /aa "included file does not affect match state"
++
++# Ensure the empty include directive is not accepted
++cat > $OBJ/sshd_config.i.x << _EOF
++Include
++_EOF
++
++trace "disallow invalid with no argument"
++${SUDO} ${REAL_SSHD} -f $OBJ/sshd_config.i.x -T \
++    -C "host=x,user=test,addr=127.0.0.1" 2>/dev/null && \
++	fail "sshd allowed Include with no argument"
++
++# Ensure the Include before any Match block works as expected (bug #3122)
++cat > $OBJ/sshd_config.i << _EOF
++Banner /xx
++HostKey $OBJ/host.ssh-ed25519
++Include $OBJ/sshd_config.i.2
++Match host a
++	Banner /aaaa
++_EOF
++cat > $OBJ/sshd_config.i.2 << _EOF
++Match host a
++	Banner /aa
++_EOF
++
++trace "Include before match blocks"
++trial a /aa "included file before match blocks is properly evaluated"
++
++# Port in included file is correctly interpretted (bug #3169)
++cat > $OBJ/sshd_config.i << _EOF
++Include $OBJ/sshd_config.i.2
++Port 7722
++_EOF
++cat > $OBJ/sshd_config.i.2 << _EOF
++HostKey $OBJ/host.ssh-ed25519
++_EOF
++
++trace "Port after included files"
++${SUDO} ${REAL_SSHD} -f $OBJ/sshd_config.i -T \
++    -C "host=x,user=test,addr=127.0.0.1" > $OBJ/sshd_config.out || \
++	fail "failed to parse Port after included files"
++_port=`grep -i '^port ' $OBJ/sshd_config.out | awk '{print $2}'`
++if test "x7722" != "x$_port" ; then
++	fail "The Port in included file was intertepretted wrongly. Expected 7722, got $_port"
++fi
++
++# cleanup
++rm -f $OBJ/sshd_config.i $OBJ/sshd_config.i.* $OBJ/sshd_config.out
+diff -up openssh-8.0p1/regress/test-exec.sh.sshdinclude openssh-8.0p1/regress/test-exec.sh
+--- openssh-8.0p1/regress/test-exec.sh.sshdinclude	2021-10-20 15:18:49.746331150 +0200
++++ openssh-8.0p1/regress/test-exec.sh	2021-10-20 15:19:41.324781344 +0200
+@@ -220,6 +220,7 @@ echo "exec ${SSH} -E${TEST_SSH_LOGFILE}
+ 
+ chmod a+rx $OBJ/ssh-log-wrapper.sh
+ REAL_SSH="$SSH"
++REAL_SSHD="$SSHD"
+ SSH="$SSHLOGWRAP"
+ 
+ # Some test data.  We make a copy because some tests will overwrite it.
+diff -up openssh-8.0p1/servconf.c.sshdinclude openssh-8.0p1/servconf.c
+--- openssh-8.0p1/servconf.c.sshdinclude	2021-10-20 15:18:49.748331167 +0200
++++ openssh-8.0p1/servconf.c	2021-10-20 15:22:06.303046777 +0200
+@@ -40,6 +40,11 @@
+ #ifdef HAVE_UTIL_H
+ #include <util.h>
+ #endif
++#ifdef USE_SYSTEM_GLOB
++# include <glob.h>
++#else
++# include "openbsd-compat/glob.h"
++#endif
+ 
+ #include "openbsd-compat/sys-queue.h"
+ #include "xmalloc.h"
+@@ -70,6 +75,9 @@ static void add_listen_addr(ServerOption
+     const char *, int);
+ static void add_one_listen_addr(ServerOptions *, const char *,
+     const char *, int);
++static void parse_server_config_depth(ServerOptions *options,
++    const char *filename, struct sshbuf *conf, struct include_list *includes,
++    struct connection_info *connectinfo, int flags, int *activep, int depth);
+ 
+ /* Use of privilege separation or not */
+ extern int use_privsep;
+@@ -528,7 +536,7 @@ typedef enum {
+ 	sAcceptEnv, sSetEnv, sPermitTunnel,
+ 	sMatch, sPermitOpen, sPermitListen, sForceCommand, sChrootDirectory,
+ 	sUsePrivilegeSeparation, sAllowAgentForwarding,
+-	sHostCertificate,
++	sHostCertificate, sInclude,
+ 	sRevokedKeys, sTrustedUserCAKeys, sAuthorizedPrincipalsFile,
+ 	sAuthorizedPrincipalsCommand, sAuthorizedPrincipalsCommandUser,
+ 	sKexAlgorithms, sCASignatureAlgorithms, sIPQoS, sVersionAddendum,
+@@ -540,9 +548,11 @@ typedef enum {
+ 	sDeprecated, sIgnore, sUnsupported
+ } ServerOpCodes;
+ 
+-#define SSHCFG_GLOBAL	0x01	/* allowed in main section of sshd_config */
+-#define SSHCFG_MATCH	0x02	/* allowed inside a Match section */
+-#define SSHCFG_ALL	(SSHCFG_GLOBAL|SSHCFG_MATCH)
++#define SSHCFG_GLOBAL		0x01	/* allowed in main section of config */
++#define SSHCFG_MATCH		0x02	/* allowed inside a Match section */
++#define SSHCFG_ALL		(SSHCFG_GLOBAL|SSHCFG_MATCH)
++#define SSHCFG_NEVERMATCH	0x04  /* Match never matches; internal only */
++#define SSHCFG_MATCH_ONLY	0x08  /* Match only in conditional blocks; internal only */
+ 
+ /* Textual representation of the tokens. */
+ static struct {
+@@ -687,6 +697,7 @@ static struct {
+ 	{ "trustedusercakeys", sTrustedUserCAKeys, SSHCFG_ALL },
+ 	{ "authorizedprincipalsfile", sAuthorizedPrincipalsFile, SSHCFG_ALL },
+ 	{ "kexalgorithms", sKexAlgorithms, SSHCFG_GLOBAL },
++	{ "include", sInclude, SSHCFG_ALL },
+ 	{ "ipqos", sIPQoS, SSHCFG_ALL },
+ 	{ "authorizedkeyscommand", sAuthorizedKeysCommand, SSHCFG_ALL },
+ 	{ "authorizedkeyscommanduser", sAuthorizedKeysCommandUser, SSHCFG_ALL },
+@@ -1259,13 +1270,14 @@ static const struct multistate multistat
+ 	{ NULL, -1 }
+ };
+ 
+-int
+-process_server_config_line(ServerOptions *options, char *line,
++static int
++process_server_config_line_depth(ServerOptions *options, char *line,
+     const char *filename, int linenum, int *activep,
+-    struct connection_info *connectinfo)
++    struct connection_info *connectinfo, int *inc_flags, int depth,
++    struct include_list *includes)
+ {
+ 	char ch, *cp, ***chararrayptr, **charptr, *arg, *arg2, *p;
+-	int cmdline = 0, *intptr, value, value2, n, port;
++	int cmdline = 0, *intptr, value, value2, n, port, oactive, r, found;
+ 	SyslogFacility *log_facility_ptr;
+ 	LogLevel *log_level_ptr;
+ 	ServerOpCodes opcode;
+@@ -1274,6 +1286,8 @@ process_server_config_line(ServerOptions
+ 	long long val64;
+ 	const struct multistate *multistate_ptr;
+ 	const char *errstr;
++	struct include_item *item;
++	glob_t gbuf;
+ 
+ 	/* Strip trailing whitespace. Allow \f (form feed) at EOL only */
+ 	if ((len = strlen(line)) == 0)
+@@ -1300,7 +1314,7 @@ process_server_config_line(ServerOptions
+ 		cmdline = 1;
+ 		activep = &cmdline;
+ 	}
+-	if (*activep && opcode != sMatch)
++	if (*activep && opcode != sMatch && opcode != sInclude)
+ 		debug3("%s:%d setting %s %s", filename, linenum, arg, cp);
+ 	if (*activep == 0 && !(flags & SSHCFG_MATCH)) {
+ 		if (connectinfo == NULL) {
+@@ -1980,15 +1994,112 @@ process_server_config_line(ServerOptions
+ 			*intptr = value;
+ 		break;
+ 
++	case sInclude:
++		if (cmdline) {
++			fatal("Include directive not supported as a "
++			    "command-line option");
++		}
++		value = 0;
++		while ((arg2 = strdelim(&cp)) != NULL && *arg2 != '\0') {
++			value++;
++			found = 0;
++			if (*arg2 != '/' && *arg2 != '~') {
++				xasprintf(&arg, "%s/%s", SSHDIR, arg2);
++			} else
++				arg = xstrdup(arg2);
++
++			/*
++			 * Don't let included files clobber the containing
++			 * file's Match state.
++			 */
++			oactive = *activep;
++
++			/* consult cache of include files */
++			TAILQ_FOREACH(item, includes, entry) {
++				if (strcmp(item->selector, arg) != 0)
++					continue;
++				if (item->filename != NULL) {
++					parse_server_config_depth(options,
++					    item->filename, item->contents,
++					    includes, connectinfo,
++					    (*inc_flags & SSHCFG_MATCH_ONLY
++					        ? SSHCFG_MATCH_ONLY : (oactive
++					            ? 0 : SSHCFG_NEVERMATCH)),
++					    activep, depth + 1);
++				}
++				found = 1;
++				*activep = oactive;
++			}
++			if (found != 0) {
++				free(arg);
++				continue;
++			}
++
++			/* requested glob was not in cache */
++			debug2("%s line %d: new include %s",
++			    filename, linenum, arg);
++			if ((r = glob(arg, 0, NULL, &gbuf)) != 0) {
++				if (r != GLOB_NOMATCH) {
++					fatal("%s line %d: include \"%s\" "
++					    "glob failed", filename,
++					    linenum, arg);
++				}
++				/*
++				 * If no entry matched then record a
++				 * placeholder to skip later glob calls.
++				 */
++				debug2("%s line %d: no match for %s",
++				    filename, linenum, arg);
++				item = xcalloc(1, sizeof(*item));
++				item->selector = strdup(arg);
++				TAILQ_INSERT_TAIL(includes,
++				    item, entry);
++			}
++			if (gbuf.gl_pathc > INT_MAX)
++				fatal("%s: too many glob results", __func__);
++			for (n = 0; n < (int)gbuf.gl_pathc; n++) {
++				debug2("%s line %d: including %s",
++				    filename, linenum, gbuf.gl_pathv[n]);
++				item = xcalloc(1, sizeof(*item));
++				item->selector = strdup(arg);
++				item->filename = strdup(gbuf.gl_pathv[n]);
++				if ((item->contents = sshbuf_new()) == NULL) {
++					fatal("%s: sshbuf_new failed",
++					    __func__);
++				}
++				load_server_config(item->filename,
++				    item->contents);
++				parse_server_config_depth(options,
++				    item->filename, item->contents,
++				    includes, connectinfo,
++				    (*inc_flags & SSHCFG_MATCH_ONLY
++				        ? SSHCFG_MATCH_ONLY : (oactive
++				            ? 0 : SSHCFG_NEVERMATCH)),
++				    activep, depth + 1);
++				*activep = oactive;
++				TAILQ_INSERT_TAIL(includes, item, entry);
++			}
++			globfree(&gbuf);
++			free(arg);
++		}
++		if (value == 0) {
++			fatal("%s line %d: Include missing filename argument",
++			    filename, linenum);
++		}
++		break;
++
+ 	case sMatch:
+ 		if (cmdline)
+ 			fatal("Match directive not supported as a command-line "
+ 			   "option");
+-		value = match_cfg_line(&cp, linenum, connectinfo);
++		value = match_cfg_line(&cp, linenum,
++		    (*inc_flags & SSHCFG_NEVERMATCH ? NULL : connectinfo));
+ 		if (value < 0)
+ 			fatal("%s line %d: Bad Match condition", filename,
+ 			    linenum);
+-		*activep = value;
++		*activep = (*inc_flags & SSHCFG_NEVERMATCH) ? 0 : value;
++		/* The MATCH_ONLY is applicable only until the first match block */
++		*inc_flags &= ~SSHCFG_MATCH_ONLY;
+ 		break;
+ 
+ 	case sKerberosUseKuserok:
+@@ -2275,6 +2386,18 @@ process_server_config_line(ServerOptions
+ 	return 0;
+ }
+ 
++int
++process_server_config_line(ServerOptions *options, char *line,
++    const char *filename, int linenum, int *activep,
++    struct connection_info *connectinfo, struct include_list *includes)
++{
++	int inc_flags = 0;
++
++	return process_server_config_line_depth(options, line, filename,
++	    linenum, activep, connectinfo, &inc_flags, 0, includes);
++}
++
++
+ /* Reads the server configuration file. */
+ 
+ void
+@@ -2313,12 +2436,13 @@ load_server_config(const char *filename,
+ 
+ void
+ parse_server_match_config(ServerOptions *options,
+-   struct connection_info *connectinfo)
++   struct include_list *includes, struct connection_info *connectinfo)
+ {
+ 	ServerOptions mo;
+ 
+ 	initialize_server_options(&mo);
+-	parse_server_config(&mo, "reprocess config", cfg, connectinfo);
++	parse_server_config(&mo, "reprocess config", cfg, includes,
++	    connectinfo);
+ 	copy_set_server_options(options, &mo, 0);
+ }
+ 
+@@ -2464,28 +2588,44 @@ copy_set_server_options(ServerOptions *d
+ #undef M_CP_STROPT
+ #undef M_CP_STRARRAYOPT
+ 
+-void
+-parse_server_config(ServerOptions *options, const char *filename,
+-    struct sshbuf *conf, struct connection_info *connectinfo)
++#define SERVCONF_MAX_DEPTH	16
++static void
++parse_server_config_depth(ServerOptions *options, const char *filename,
++    struct sshbuf *conf, struct include_list *includes,
++    struct connection_info *connectinfo, int flags, int *activep, int depth)
+ {
+-	int active, linenum, bad_options = 0;
++	int linenum, bad_options = 0;
+ 	char *cp, *obuf, *cbuf;
+ 
+-	debug2("%s: config %s len %zu", __func__, filename, sshbuf_len(conf));
++	if (depth < 0 || depth > SERVCONF_MAX_DEPTH)
++		fatal("Too many recursive configuration includes");
++
++	debug2("%s: config %s len %zu%s", __func__, filename, sshbuf_len(conf),
++	    (flags & SSHCFG_NEVERMATCH ? " [checking syntax only]" : ""));
+ 
+ 	if ((obuf = cbuf = sshbuf_dup_string(conf)) == NULL)
+ 		fatal("%s: sshbuf_dup_string failed", __func__);
+-	active = connectinfo ? 0 : 1;
+ 	linenum = 1;
+ 	while ((cp = strsep(&cbuf, "\n")) != NULL) {
+-		if (process_server_config_line(options, cp, filename,
+-		    linenum++, &active, connectinfo) != 0)
++		if (process_server_config_line_depth(options, cp,
++		    filename, linenum++, activep, connectinfo, &flags,
++		    depth, includes) != 0)
+ 			bad_options++;
+ 	}
+ 	free(obuf);
+ 	if (bad_options > 0)
+ 		fatal("%s: terminating, %d bad configuration options",
+ 		    filename, bad_options);
++}
++
++void
++parse_server_config(ServerOptions *options, const char *filename,
++    struct sshbuf *conf, struct include_list *includes,
++    struct connection_info *connectinfo)
++{
++	int active = connectinfo ? 0 : 1;
++	parse_server_config_depth(options, filename, conf, includes,
++	    connectinfo, (connectinfo ? SSHCFG_MATCH_ONLY : 0), &active, 0);
+ 	process_queued_listen_addrs(options);
+ }
+ 
+diff -up openssh-8.0p1/servconf.h.sshdinclude openssh-8.0p1/servconf.h
+--- openssh-8.0p1/servconf.h.sshdinclude	2021-10-20 15:18:49.750331185 +0200
++++ openssh-8.0p1/servconf.h	2021-10-20 15:19:41.325781353 +0200
+@@ -16,6 +16,8 @@
+ #ifndef SERVCONF_H
+ #define SERVCONF_H
+ 
++#include <sys/queue.h>
++
+ #define MAX_PORTS		256	/* Max # ports. */
+ 
+ #define MAX_SUBSYSTEMS		256	/* Max # subsystems. */
+@@ -234,6 +236,15 @@ struct connection_info {
+ 				 * unspecified */
+ };
+ 
++/* List of included files for re-exec from the parsed configuration */
++struct include_item {
++	char *selector;
++	char *filename;
++	struct sshbuf *contents;
++	TAILQ_ENTRY(include_item) entry;
++};
++TAILQ_HEAD(include_list, include_item);
++
+ 
+ /*
+  * These are string config options that must be copied between the
+@@ -273,12 +284,13 @@ struct connection_info *get_connection_i
+ void	 initialize_server_options(ServerOptions *);
+ void	 fill_default_server_options(ServerOptions *);
+ int	 process_server_config_line(ServerOptions *, char *, const char *, int,
+-	     int *, struct connection_info *);
++	     int *, struct connection_info *, struct include_list *includes);
+ void	 process_permitopen(struct ssh *ssh, ServerOptions *options);
+ void	 load_server_config(const char *, struct sshbuf *);
+ void	 parse_server_config(ServerOptions *, const char *, struct sshbuf *,
+-	     struct connection_info *);
+-void	 parse_server_match_config(ServerOptions *, struct connection_info *);
++	     struct include_list *includes, struct connection_info *);
++void	 parse_server_match_config(ServerOptions *,
++	     struct include_list *includes, struct connection_info *);
+ int	 parse_server_match_testspec(struct connection_info *, char *);
+ int	 server_match_spec_complete(struct connection_info *);
+ void	 copy_set_server_options(ServerOptions *, ServerOptions *, int);
+diff -up openssh-8.0p1/sshd_config.5.sshdinclude openssh-8.0p1/sshd_config.5
+--- openssh-8.0p1/sshd_config.5.sshdinclude	2021-10-20 15:18:49.754331220 +0200
++++ openssh-8.0p1/sshd_config.5	2021-10-20 15:19:41.325781353 +0200
+@@ -825,7 +825,20 @@ during
+ and use only the system-wide known hosts file
+ .Pa /etc/ssh/known_hosts .
+ The default is
+-.Cm no .
++.Dq no .
++.It Cm Include
++Include the specified configuration file(s).
++Multiple path names may be specified and each pathname may contain
++.Xr glob 7
++wildcards.
++Files without absolute paths are assumed to be in
++.Pa /etc/ssh .
++A
++.Cm Include
++directive may appear inside a
++.Cm Match
++block
++to perform conditional inclusion.
+ .It Cm IPQoS
+ Specifies the IPv4 type-of-service or DSCP class for the connection.
+ Accepted values are
+diff -up openssh-8.0p1/sshd.c.sshdinclude openssh-8.0p1/sshd.c
+--- openssh-8.0p1/sshd.c.sshdinclude	2021-10-20 15:18:49.752331202 +0200
++++ openssh-8.0p1/sshd.c	2021-10-20 15:19:41.325781353 +0200
+@@ -257,6 +257,9 @@ struct sshauthopt *auth_opts = NULL;
+ /* sshd_config buffer */
+ struct sshbuf *cfg;
+ 
++/* Included files from the configuration file */
++struct include_list includes = TAILQ_HEAD_INITIALIZER(includes);
++
+ /* message to be displayed after login */
+ struct sshbuf *loginmsg;
+ 
+@@ -927,30 +930,45 @@ usage(void)
+ static void
+ send_rexec_state(int fd, struct sshbuf *conf)
+ {
+-	struct sshbuf *m;
++	struct sshbuf *m = NULL, *inc = NULL;
++	struct include_item *item = NULL;
+ 	int r;
+ 
+ 	debug3("%s: entering fd = %d config len %zu", __func__, fd,
+ 	    sshbuf_len(conf));
+ 
++	if ((m = sshbuf_new()) == NULL || (inc = sshbuf_new()) == NULL)
++		fatal("%s: sshbuf_new failed", __func__);
++
++	/* pack includes into a string */
++	TAILQ_FOREACH(item, &includes, entry) {
++		if ((r = sshbuf_put_cstring(inc, item->selector)) != 0 ||
++		    (r = sshbuf_put_cstring(inc, item->filename)) != 0 ||
++		    (r = sshbuf_put_stringb(inc, item->contents)) != 0)
++			fatal("%s: buffer error: %s", __func__, ssh_err(r));
++	}
++
+ 	/*
+ 	 * Protocol from reexec master to child:
+ 	 *	string	configuration
+-	 *	string rngseed		(only if OpenSSL is not self-seeded)
++	 *	string	included_files[] {
++	 *		string	selector
++	 *		string	filename
++	 *		string	contents
++	 *	}
++	 *	string	rng_seed (if required)
+ 	 */
+-	if ((m = sshbuf_new()) == NULL)
+-		fatal("%s: sshbuf_new failed", __func__);
+-	if ((r = sshbuf_put_stringb(m, conf)) != 0)
++	if ((r = sshbuf_put_stringb(m, conf)) != 0 ||
++	    (r = sshbuf_put_stringb(m, inc)) != 0)
+ 		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+-
+ #if defined(WITH_OPENSSL) && !defined(OPENSSL_PRNG_ONLY)
+ 	rexec_send_rng_seed(m);
+ #endif
+-
+ 	if (ssh_msg_send(fd, 0, m) == -1)
+ 		fatal("%s: ssh_msg_send failed", __func__);
+ 
+ 	sshbuf_free(m);
++	sshbuf_free(inc);
+ 
+ 	debug3("%s: done", __func__);
+ }
+@@ -958,14 +976,15 @@ send_rexec_state(int fd, struct sshbuf *
+ static void
+ recv_rexec_state(int fd, struct sshbuf *conf)
+ {
+-	struct sshbuf *m;
++	struct sshbuf *m, *inc;
+ 	u_char *cp, ver;
+ 	size_t len;
+ 	int r;
++	struct include_item *item;
+ 
+ 	debug3("%s: entering fd = %d", __func__, fd);
+ 
+-	if ((m = sshbuf_new()) == NULL)
++	if ((m = sshbuf_new()) == NULL || (inc = sshbuf_new()) == NULL)
+ 		fatal("%s: sshbuf_new failed", __func__);
+ 	if (ssh_msg_recv(fd, m) == -1)
+ 		fatal("%s: ssh_msg_recv failed", __func__);
+@@ -973,14 +992,28 @@ recv_rexec_state(int fd, struct sshbuf *
+ 		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+ 	if (ver != 0)
+ 		fatal("%s: rexec version mismatch", __func__);
+-	if ((r = sshbuf_get_string(m, &cp, &len)) != 0)
+-		fatal("%s: buffer error: %s", __func__, ssh_err(r));
+-	if (conf != NULL && (r = sshbuf_put(conf, cp, len)))
++	if ((r = sshbuf_get_string(m, &cp, &len)) != 0 ||
++	    (r = sshbuf_get_stringb(m, inc)) != 0)
+ 		fatal("%s: buffer error: %s", __func__, ssh_err(r));
++
+ #if defined(WITH_OPENSSL) && !defined(OPENSSL_PRNG_ONLY)
+ 	rexec_recv_rng_seed(m);
+ #endif
+ 
++	if (conf != NULL && (r = sshbuf_put(conf, cp, len)))
++		fatal("%s: buffer error: %s", __func__, ssh_err(r));
++
++	while (sshbuf_len(inc) != 0) {
++		item = xcalloc(1, sizeof(*item));
++		if ((item->contents = sshbuf_new()) == NULL)
++			fatal("%s: sshbuf_new failed", __func__);
++		if ((r = sshbuf_get_cstring(inc, &item->selector, NULL)) != 0 ||
++		    (r = sshbuf_get_cstring(inc, &item->filename, NULL)) != 0 ||
++		    (r = sshbuf_get_stringb(inc, item->contents)) != 0)
++			fatal("%s: buffer error: %s", __func__, ssh_err(r));
++		TAILQ_INSERT_TAIL(&includes, item, entry);
++	}
++
+ 	free(cp);
+ 	sshbuf_free(m);
+ 
+@@ -1661,7 +1694,7 @@ main(int ac, char **av)
+ 		case 'o':
+ 			line = xstrdup(optarg);
+ 			if (process_server_config_line(&options, line,
+-			    "command-line", 0, NULL, NULL) != 0)
++			    "command-line", 0, NULL, NULL, &includes) != 0)
+ 				exit(1);
+ 			free(line);
+ 			break;
+@@ -1692,7 +1725,7 @@ main(int ac, char **av)
+ 	    SYSLOG_LEVEL_INFO : options.log_level,
+ 	    options.log_facility == SYSLOG_FACILITY_NOT_SET ?
+ 	    SYSLOG_FACILITY_AUTH : options.log_facility,
+-	    log_stderr || !inetd_flag);
++	    log_stderr || !inetd_flag || debug_flag);
+ 
+ 	/*
+ 	 * Unset KRB5CCNAME, otherwise the user's session may inherit it from
+@@ -1725,12 +1758,11 @@ main(int ac, char **av)
+ 			 */
+ 			(void)atomicio(vwrite, startup_pipe, "\0", 1);
+ 		}
+-	}
+-	else if (strcasecmp(config_file_name, "none") != 0)
++	} else if (strcasecmp(config_file_name, "none") != 0)
+ 		load_server_config(config_file_name, cfg);
+ 
+ 	parse_server_config(&options, rexeced_flag ? "rexec" : config_file_name,
+-	    cfg, NULL);
++	    cfg, &includes, NULL);
+ 
+ 	/* 'UsePAM no' is not supported in RHEL */
+ 	if (! options.use_pam)
+@@ -1946,7 +1978,7 @@ main(int ac, char **av)
+ 		if (connection_info == NULL)
+ 			connection_info = get_connection_info(ssh, 0, 0);
+ 		connection_info->test = 1;
+-		parse_server_match_config(&options, connection_info);
++		parse_server_match_config(&options, &includes, connection_info);
+ 		dump_config(&options);
+ 	}
+ 

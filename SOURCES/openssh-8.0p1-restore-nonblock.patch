@@ -1,0 +1,311 @@
+diff -up openssh-8.0p1/channels.c.restore-nonblock openssh-8.0p1/channels.c
+--- openssh-8.0p1/channels.c.restore-nonblock	2021-06-21 10:44:26.380559612 +0200
++++ openssh-8.0p1/channels.c	2021-06-21 10:48:47.754579151 +0200
+@@ -333,7 +333,27 @@ channel_register_fds(struct ssh *ssh, Ch
+ #endif
+ 
+ 	/* enable nonblocking mode */
+-	if (nonblock) {
++	c->restore_block = 0;
++	if (nonblock == CHANNEL_NONBLOCK_STDIO) {
++		/*
++		 * Special handling for stdio file descriptors: do not set
++		 * non-blocking mode if they are TTYs. Otherwise prepare to
++		 * restore their blocking state on exit to avoid interfering
++		 * with other programs that follow.
++		 */
++		if (rfd != -1 && !isatty(rfd) && fcntl(rfd, F_GETFL) == 0) {
++			c->restore_block |= CHANNEL_RESTORE_RFD;
++			set_nonblock(rfd);
++		}
++		if (wfd != -1 && !isatty(wfd) && fcntl(wfd, F_GETFL) == 0) {
++			c->restore_block |= CHANNEL_RESTORE_WFD;
++			set_nonblock(wfd);
++		}
++		if (efd != -1 && !isatty(efd) && fcntl(efd, F_GETFL) == 0) {
++			c->restore_block |= CHANNEL_RESTORE_EFD;
++			set_nonblock(efd);
++		}
++	} else if (nonblock) {
+ 		if (rfd != -1)
+ 			set_nonblock(rfd);
+ 		if (wfd != -1)
+@@ -422,17 +442,23 @@ channel_find_maxfd(struct ssh_channels *
+ }
+ 
+ int
+-channel_close_fd(struct ssh *ssh, int *fdp)
++channel_close_fd(struct ssh *ssh, Channel *c, int *fdp)
+ {
+ 	struct ssh_channels *sc = ssh->chanctxt;
+-	int ret = 0, fd = *fdp;
++	int ret, fd = *fdp;
+ 
+-	if (fd != -1) {
+-		ret = close(fd);
+-		*fdp = -1;
+-		if (fd == sc->channel_max_fd)
+-			channel_find_maxfd(sc);
+-	}
++	if (fd == -1)
++		return 0;
++
++	if ((*fdp == c->rfd && (c->restore_block & CHANNEL_RESTORE_RFD) != 0) ||
++	   (*fdp == c->wfd && (c->restore_block & CHANNEL_RESTORE_WFD) != 0) ||
++	   (*fdp == c->efd && (c->restore_block & CHANNEL_RESTORE_EFD) != 0))
++		(void)fcntl(*fdp, F_SETFL, 0);	/* restore blocking */
++
++	ret = close(fd);
++	*fdp = -1;
++	if (fd == sc->channel_max_fd)
++		channel_find_maxfd(sc);
+ 	return ret;
+ }
+ 
+@@ -442,13 +468,13 @@ channel_close_fds(struct ssh *ssh, Chann
+ {
+ 	int sock = c->sock, rfd = c->rfd, wfd = c->wfd, efd = c->efd;
+ 
+-	channel_close_fd(ssh, &c->sock);
++	channel_close_fd(ssh, c, &c->sock);
+ 	if (rfd != sock)
+-		channel_close_fd(ssh, &c->rfd);
++		channel_close_fd(ssh, c, &c->rfd);
+ 	if (wfd != sock && wfd != rfd)
+-		channel_close_fd(ssh, &c->wfd);
++		channel_close_fd(ssh, c, &c->wfd);
+ 	if (efd != sock && efd != rfd && efd != wfd)
+-		channel_close_fd(ssh, &c->efd);
++		channel_close_fd(ssh, c, &c->efd);
+ }
+ 
+ static void
+@@ -681,7 +707,7 @@ channel_stop_listening(struct ssh *ssh)
+ 			case SSH_CHANNEL_X11_LISTENER:
+ 			case SSH_CHANNEL_UNIX_LISTENER:
+ 			case SSH_CHANNEL_RUNIX_LISTENER:
+-				channel_close_fd(ssh, &c->sock);
++				channel_close_fd(ssh, c, &c->sock);
+ 				channel_free(ssh, c);
+ 				break;
+ 			}
+@@ -1487,7 +1513,8 @@ channel_decode_socks5(Channel *c, struct
+ 
+ Channel *
+ channel_connect_stdio_fwd(struct ssh *ssh,
+-    const char *host_to_connect, u_short port_to_connect, int in, int out)
++    const char *host_to_connect, u_short port_to_connect,
++    int in, int out, int nonblock)
+ {
+ 	Channel *c;
+ 
+@@ -1495,7 +1522,7 @@ channel_connect_stdio_fwd(struct ssh *ss
+ 
+ 	c = channel_new(ssh, "stdio-forward", SSH_CHANNEL_OPENING, in, out,
+ 	    -1, CHAN_TCP_WINDOW_DEFAULT, CHAN_TCP_PACKET_DEFAULT,
+-	    0, "stdio-forward", /*nonblock*/0);
++	    0, "stdio-forward", nonblock);
+ 
+ 	c->path = xstrdup(host_to_connect);
+ 	c->host_port = port_to_connect;
+@@ -1650,7 +1677,7 @@ channel_post_x11_listener(struct ssh *ss
+ 	if (c->single_connection) {
+ 		oerrno = errno;
+ 		debug2("single_connection: closing X11 listener.");
+-		channel_close_fd(ssh, &c->sock);
++		channel_close_fd(ssh, c, &c->sock);
+ 		chan_mark_dead(ssh, c);
+ 		errno = oerrno;
+ 	}
+@@ -2087,7 +2114,7 @@ channel_handle_efd_write(struct ssh *ssh
+ 		return 1;
+ 	if (len <= 0) {
+ 		debug2("channel %d: closing write-efd %d", c->self, c->efd);
+-		channel_close_fd(ssh, &c->efd);
++		channel_close_fd(ssh, c, &c->efd);
+ 	} else {
+ 		if ((r = sshbuf_consume(c->extended, len)) != 0) {
+ 			fatal("%s: channel %d: consume: %s",
+@@ -2119,7 +2146,7 @@ channel_handle_efd_read(struct ssh *ssh,
+ 	if (len <= 0) {
+ 		debug2("channel %d: closing read-efd %d",
+ 		    c->self, c->efd);
+-		channel_close_fd(ssh, &c->efd);
++		channel_close_fd(ssh, c, &c->efd);
+ 	} else {
+ 		if (c->extended_usage == CHAN_EXTENDED_IGNORE) {
+ 			debug3("channel %d: discard efd",
+diff -up openssh-8.0p1/channels.h.restore-nonblock openssh-8.0p1/channels.h
+--- openssh-8.0p1/channels.h.restore-nonblock	2021-06-21 10:44:26.380559612 +0200
++++ openssh-8.0p1/channels.h	2021-06-21 10:44:26.387559665 +0200
+@@ -63,6 +63,16 @@
+ 
+ #define CHANNEL_CANCEL_PORT_STATIC	-1
+ 
++/* nonblocking flags for channel_new */
++#define CHANNEL_NONBLOCK_LEAVE	0 /* don't modify non-blocking state */
++#define CHANNEL_NONBLOCK_SET	1 /* set non-blocking state */
++#define CHANNEL_NONBLOCK_STDIO	2 /* set non-blocking and restore on close */
++
++/* c->restore_block mask flags */
++#define CHANNEL_RESTORE_RFD	0x01
++#define CHANNEL_RESTORE_WFD	0x02
++#define CHANNEL_RESTORE_EFD	0x04
++
+ /* TCP forwarding */
+ #define FORWARD_DENY		0
+ #define FORWARD_REMOTE		(1)
+@@ -131,6 +141,7 @@ struct Channel {
+ 				 * to a matching pre-select handler.
+ 				 * this way post-select handlers are not
+ 				 * accidentally called if a FD gets reused */
++	int	restore_block;	/* fd mask to restore blocking status */
+ 	struct sshbuf *input;	/* data read from socket, to be sent over
+ 				 * encrypted connection */
+ 	struct sshbuf *output;	/* data received over encrypted connection for
+@@ -258,7 +269,7 @@ void	 channel_register_filter(struct ssh
+ void	 channel_register_status_confirm(struct ssh *, int,
+ 	    channel_confirm_cb *, channel_confirm_abandon_cb *, void *);
+ void	 channel_cancel_cleanup(struct ssh *, int);
+-int	 channel_close_fd(struct ssh *, int *);
++int	 channel_close_fd(struct ssh *, Channel *, int *);
+ void	 channel_send_window_changes(struct ssh *);
+ 
+ /* mux proxy support */
+@@ -305,7 +316,7 @@ Channel	*channel_connect_to_port(struct
+ 	    char *, char *, int *, const char **);
+ Channel *channel_connect_to_path(struct ssh *, const char *, char *, char *);
+ Channel	*channel_connect_stdio_fwd(struct ssh *, const char*,
+-	    u_short, int, int);
++	    u_short, int, int, int);
+ Channel	*channel_connect_by_listen_address(struct ssh *, const char *,
+ 	    u_short, char *, char *);
+ Channel	*channel_connect_by_listen_path(struct ssh *, const char *,
+diff -up openssh-8.0p1/clientloop.c.restore-nonblock openssh-8.0p1/clientloop.c
+--- openssh-8.0p1/clientloop.c.restore-nonblock	2021-06-21 10:44:26.290558923 +0200
++++ openssh-8.0p1/clientloop.c	2021-06-21 10:44:26.387559665 +0200
+@@ -1436,14 +1436,6 @@ client_loop(struct ssh *ssh, int have_pt
+ 	if (have_pty)
+ 		leave_raw_mode(options.request_tty == REQUEST_TTY_FORCE);
+ 
+-	/* restore blocking io */
+-	if (!isatty(fileno(stdin)))
+-		unset_nonblock(fileno(stdin));
+-	if (!isatty(fileno(stdout)))
+-		unset_nonblock(fileno(stdout));
+-	if (!isatty(fileno(stderr)))
+-		unset_nonblock(fileno(stderr));
+-
+ 	/*
+ 	 * If there was no shell or command requested, there will be no remote
+ 	 * exit status to be returned.  In that case, clear error code if the
+diff -up openssh-8.0p1/mux.c.restore-nonblock openssh-8.0p1/mux.c
+--- openssh-8.0p1/mux.c.restore-nonblock	2019-04-18 00:52:57.000000000 +0200
++++ openssh-8.0p1/mux.c	2021-06-21 10:50:51.007537336 +0200
+@@ -454,14 +454,6 @@ mux_master_process_new_session(struct ss
+ 	if (cctx->want_tty && tcgetattr(new_fd[0], &cctx->tio) == -1)
+ 		error("%s: tcgetattr: %s", __func__, strerror(errno));
+ 
+-	/* enable nonblocking unless tty */
+-	if (!isatty(new_fd[0]))
+-		set_nonblock(new_fd[0]);
+-	if (!isatty(new_fd[1]))
+-		set_nonblock(new_fd[1]);
+-	if (!isatty(new_fd[2]))
+-		set_nonblock(new_fd[2]);
+-
+ 	window = CHAN_SES_WINDOW_DEFAULT;
+ 	packetmax = CHAN_SES_PACKET_DEFAULT;
+ 	if (cctx->want_tty) {
+@@ -471,7 +463,7 @@ mux_master_process_new_session(struct ss
+ 
+ 	nc = channel_new(ssh, "session", SSH_CHANNEL_OPENING,
+ 	    new_fd[0], new_fd[1], new_fd[2], window, packetmax,
+-	    CHAN_EXTENDED_WRITE, "client-session", /*nonblock*/0);
++	    CHAN_EXTENDED_WRITE, "client-session", CHANNEL_NONBLOCK_STDIO);
+ 
+ 	nc->ctl_chan = c->self;		/* link session -> control channel */
+ 	c->remote_id = nc->self; 	/* link control -> session channel */
+@@ -1033,13 +1025,8 @@ mux_master_process_stdio_fwd(struct ssh
+ 		}
+ 	}
+ 
+-	/* enable nonblocking unless tty */
+-	if (!isatty(new_fd[0]))
+-		set_nonblock(new_fd[0]);
+-	if (!isatty(new_fd[1]))
+-		set_nonblock(new_fd[1]);
+-
+-	nc = channel_connect_stdio_fwd(ssh, chost, cport, new_fd[0], new_fd[1]);
++	nc = channel_connect_stdio_fwd(ssh, chost, cport, new_fd[0], new_fd[1],
++	    CHANNEL_NONBLOCK_STDIO);
+ 	free(chost);
+ 
+ 	nc->ctl_chan = c->self;		/* link session -> control channel */
+diff -up openssh-8.0p1/nchan.c.restore-nonblock openssh-8.0p1/nchan.c
+--- openssh-8.0p1/nchan.c.restore-nonblock	2021-06-21 10:44:26.388559673 +0200
++++ openssh-8.0p1/nchan.c	2021-06-21 10:52:42.685405537 +0200
+@@ -387,7 +387,7 @@ chan_shutdown_write(struct ssh *ssh, Cha
+ 			    strerror(errno));
+ 		}
+ 	} else {
+-		if (channel_close_fd(ssh, &c->wfd) < 0) {
++		if (channel_close_fd(ssh, c, &c->wfd) < 0) {
+ 			logit("channel %d: %s: close() failed for "
+ 			    "fd %d [i%d o%d]: %.100s",
+ 			    c->self, __func__, c->wfd, c->istate, c->ostate,
+@@ -417,7 +417,7 @@ chan_shutdown_read(struct ssh *ssh, Chan
+  			    strerror(errno));
+ 		}
+ 	} else {
+-		if (channel_close_fd(ssh, &c->rfd) < 0) {
++		if (channel_close_fd(ssh, c, &c->rfd) < 0) {
+ 			logit("channel %d: %s: close() failed for "
+ 			    "fd %d [i%d o%d]: %.100s",
+ 			    c->self, __func__, c->rfd, c->istate, c->ostate,
+@@ -437,7 +437,7 @@ chan_shutdown_extended_read(struct ssh *
+ 	debug2("channel %d: %s (i%d o%d sock %d wfd %d efd %d [%s])",
+ 	    c->self, __func__, c->istate, c->ostate, c->sock, c->rfd, c->efd,
+ 	    channel_format_extended_usage(c));
+-	if (channel_close_fd(ssh, &c->efd) < 0) {
++	if (channel_close_fd(ssh, c, &c->efd) < 0) {
+ 		logit("channel %d: %s: close() failed for "
+ 		    "extended fd %d [i%d o%d]: %.100s",
+ 		    c->self, __func__, c->efd, c->istate, c->ostate,
+diff -up openssh-8.0p1/ssh.c.restore-nonblock openssh-8.0p1/ssh.c
+--- openssh-8.0p1/ssh.c.restore-nonblock	2021-06-21 10:44:26.389559681 +0200
++++ openssh-8.0p1/ssh.c	2021-06-21 10:54:47.651377045 +0200
+@@ -1709,7 +1709,8 @@ ssh_init_stdio_forwarding(struct ssh *ss
+ 	    (out = dup(STDOUT_FILENO)) < 0)
+ 		fatal("channel_connect_stdio_fwd: dup() in/out failed");
+ 	if ((c = channel_connect_stdio_fwd(ssh, options.stdio_forward_host,
+-	    options.stdio_forward_port, in, out)) == NULL)
++	    options.stdio_forward_port, in, out,
++	    CHANNEL_NONBLOCK_STDIO)) == NULL)
+ 		fatal("%s: channel_connect_stdio_fwd failed", __func__);
+ 	channel_register_cleanup(ssh, c->self, client_cleanup_stdio_fwd, 0);
+ 	channel_register_open_confirm(ssh, c->self, ssh_stdio_confirm, NULL);
+@@ -1862,14 +1863,6 @@ ssh_session2_open(struct ssh *ssh)
+ 	if (in < 0 || out < 0 || err < 0)
+ 		fatal("dup() in/out/err failed");
+ 
+-	/* enable nonblocking unless tty */
+-	if (!isatty(in))
+-		set_nonblock(in);
+-	if (!isatty(out))
+-		set_nonblock(out);
+-	if (!isatty(err))
+-		set_nonblock(err);
+-
+ 	window = CHAN_SES_WINDOW_DEFAULT;
+ 	packetmax = CHAN_SES_PACKET_DEFAULT;
+ 	if (tty_flag) {
+@@ -1879,7 +1872,7 @@ ssh_session2_open(struct ssh *ssh)
+ 	c = channel_new(ssh,
+ 	    "session", SSH_CHANNEL_OPENING, in, out, err,
+ 	    window, packetmax, CHAN_EXTENDED_WRITE,
+-	    "client-session", /*nonblock*/0);
++	    "client-session", CHANNEL_NONBLOCK_STDIO);
+ 
+ 	debug3("%s: channel_new: %d", __func__, c->self);
+ 

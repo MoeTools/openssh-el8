@@ -1,0 +1,16 @@
+diff -up openssh-8.0p1/sftp.c.original openssh-8.0p1/sftp.c
+--- openssh-8.0p1/sftp.c.original	2020-12-22 17:05:02.105698989 +0900
++++ openssh-8.0p1/sftp.c	2020-12-22 17:05:42.922035780 +0900
+@@ -937,7 +937,11 @@ sglob_comp(const void *aa, const void *b
+ 		return (rmul * strcmp(ap, bp));
+ 	else if (sort_flag & LS_TIME_SORT) {
+ #if defined(HAVE_STRUCT_STAT_ST_MTIM)
+-		return (rmul * timespeccmp(&as->st_mtim, &bs->st_mtim, <));
++		if (timespeccmp(&as->st_mtim, &bs->st_mtim, <)){
++			return rmul;
++		} else {
++			return -rmul;
++		}
+ #elif defined(HAVE_STRUCT_STAT_ST_MTIME)
+ 		return (rmul * NCMP(as->st_mtime, bs->st_mtime));
+ #else

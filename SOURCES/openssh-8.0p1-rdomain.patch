@@ -1,0 +1,44 @@
+commit 5481d0b4036b33b92c372ee36258ed11bff57d5d
+Author: Jakub Jelen <jjelen@redhat.com>
+Date:   Thu Feb 27 10:07:33 2020 +0100
+
+    Mark the RDomain configuration option unsupported on non-openbsd builds
+
+diff --git a/servconf.c b/servconf.c
+index db80e943..153d2525 100644
+--- a/servconf.c
++++ b/servconf.c
+@@ -698,7 +698,11 @@ static struct {
+ 	{ "fingerprinthash", sFingerprintHash, SSHCFG_GLOBAL },
+ 	{ "disableforwarding", sDisableForwarding, SSHCFG_ALL },
+ 	{ "exposeauthinfo", sExposeAuthInfo, SSHCFG_ALL },
++#if defined(__OpenBSD__)
+ 	{ "rdomain", sRDomain, SSHCFG_ALL },
++#else
++	{ "rdomain", sUnsupported, SSHCFG_ALL },
++#endif
+ 	{ "casignaturealgorithms", sCASignatureAlgorithms, SSHCFG_ALL },
+ 	{ NULL, sBadOption, 0 }
+ };
+@@ -2841,7 +2845,9 @@ dump_config(ServerOptions *o)
+ 	    o->hostkeyalgorithms : KEX_DEFAULT_PK_ALG);
+ 	dump_cfg_string(sPubkeyAcceptedKeyTypes, o->pubkey_key_types ?
+ 	    o->pubkey_key_types : KEX_DEFAULT_PK_ALG);
++#if defined(__OpenBSD__)
+ 	dump_cfg_string(sRDomain, o->routing_domain);
++#endif
+ 
+ 	/* string arguments requiring a lookup */
+ 	dump_cfg_string(sLogLevel, log_level_name(o->log_level));
+diff --git a/sshd_config.5 b/sshd_config.5
+index 5dca8981..766e9b90 100644
+--- a/sshd_config.5
++++ b/sshd_config.5
+@@ -1542,6 +1542,7 @@ will be bound to this
+ If the routing domain is set to
+ .Cm \&%D ,
+ then the domain in which the incoming connection was received will be applied.
++This feature is available on OpenBSD only.
+ .It Cm SetEnv
+ Specifies one or more environment variables to set in child sessions started
+ by

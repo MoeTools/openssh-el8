@@ -1,0 +1,33 @@
+From 7250879c72d28275a53f2f220e49646c3e42ef18 Mon Sep 17 00:00:00 2001
+From: "djm@openbsd.org" <djm@openbsd.org>
+Date: Fri, 12 Jul 2019 04:08:39 +0000
+Subject: [PATCH] upstream: include SHA2-variant RSA key algorithms in KEX
+ proposal;
+
+allows ssh-keyscan to harvest keys from servers that disable olde SHA1
+ssh-rsa. bz#3029 from Jakub Jelen
+
+OpenBSD-Commit-ID: 9f95ebf76a150c2f727ca4780fb2599d50bbab7a
+---
+ ssh-keyscan.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/ssh-keyscan.c b/ssh-keyscan.c
+index d95ba1b37..d383b57b9 100644
+--- a/ssh-keyscan.c
++++ b/ssh-keyscan.c
+@@ -233,7 +233,12 @@ keygrab_ssh2(con *c)
+ 		break;
+ 	case KT_RSA:
+ 		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = get_cert ?
+-		    "ssh-rsa-cert-v01@openssh.com" : "ssh-rsa";
++		    "rsa-sha2-512-cert-v01@openssh.com,"
++		    "rsa-sha2-256-cert-v01@openssh.com,"
++		    "ssh-rsa-cert-v01@openssh.com" :
++		    "rsa-sha2-512,"
++		    "rsa-sha2-256,"
++		    "ssh-rsa";
+ 		break;
+ 	case KT_ED25519:
+ 		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = get_cert ?
+

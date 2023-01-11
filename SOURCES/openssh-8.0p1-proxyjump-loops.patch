@@ -1,0 +1,33 @@
+From de1f3564cd85915b3002859873a37cb8d31ac9ce Mon Sep 17 00:00:00 2001
+From: "dtucker@openbsd.org" <dtucker@openbsd.org>
+Date: Tue, 18 Feb 2020 08:49:49 +0000
+Subject: [PATCH] upstream: Detect and prevent simple configuration loops when
+ using
+
+ProxyJump. bz#3057, ok djm@
+
+OpenBSD-Commit-ID: 077d21c564c886c98309d871ed6f8ef267b9f037
+---
+ ssh.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/ssh.c b/ssh.c
+index 15aee569e..a983a108b 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -1208,6 +1208,14 @@ main(int ac, char **av)
+ 	if (options.jump_host != NULL) {
+ 		char port_s[8];
+ 		const char *sshbin = argv0;
++		int port = options.port, jumpport = options.jump_port;
++
++		if (port <= 0)
++			port = default_ssh_port();
++		if (jumpport <= 0)
++			jumpport = default_ssh_port();
++		if (strcmp(options.jump_host, host) == 0 && port == jumpport)
++			fatal("jumphost loop via %s", options.jump_host);
+ 
+ 		/*
+ 		 * Try to use SSH indicated by argv[0], but fall back to
+

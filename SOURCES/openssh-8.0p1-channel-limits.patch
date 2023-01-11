@@ -1,0 +1,33 @@
+diff -up openssh-8.0p1/channels.c.channel-limits openssh-8.0p1/channels.c
+--- openssh-8.0p1/channels.c.channel-limits	2021-03-16 12:17:58.905576511 +0100
++++ openssh-8.0p1/channels.c	2021-03-16 12:17:58.925576667 +0100
+@@ -354,6 +354,7 @@ channel_new(struct ssh *ssh, char *ctype
+ 	struct ssh_channels *sc = ssh->chanctxt;
+ 	u_int i, found;
+ 	Channel *c;
++	int r;
+ 
+ 	/* Try to find a free slot where to put the new channel. */
+ 	for (i = 0; i < sc->channels_alloc; i++) {
+@@ -383,6 +384,8 @@ channel_new(struct ssh *ssh, char *ctype
+ 	    (c->output = sshbuf_new()) == NULL ||
+ 	    (c->extended = sshbuf_new()) == NULL)
+ 		fatal("%s: sshbuf_new failed", __func__);
++	if ((r = sshbuf_set_max_size(c->input, CHAN_INPUT_MAX)) != 0)
++		fatal("%s: sshbuf_set_max_size: %s", __func__, ssh_err(r));
+ 	c->ostate = CHAN_OUTPUT_OPEN;
+ 	c->istate = CHAN_INPUT_OPEN;
+ 	channel_register_fds(ssh, c, rfd, wfd, efd, extusage, nonblock, 0);
+diff -up openssh-8.0p1/channels.h.channel-limits openssh-8.0p1/channels.h
+--- openssh-8.0p1/channels.h.channel-limits	2021-03-16 12:17:58.868576223 +0100
++++ openssh-8.0p1/channels.h	2021-03-16 12:17:58.907576527 +0100
+@@ -215,6 +215,9 @@ struct Channel {
+ /* Read buffer size */
+ #define CHAN_RBUF	(16*1024)
+ 
++/* Maximum channel input buffer size */
++#define CHAN_INPUT_MAX	(16*1024*1024)
++
+ /* Hard limit on number of channels */
+ #define CHANNELS_MAX_CHANNELS	(16*1024)
+ 
