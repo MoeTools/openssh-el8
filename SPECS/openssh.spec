@@ -76,8 +76,8 @@ Version: %{openssh_ver}
 Release: %{openssh_rel}%{?dist}%{?rescue_rel}
 URL: http://www.openssh.com/portable.html
 #URL1: https://github.com/jbeverly/pam_ssh_agent_auth/
-Source0: ftp://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-%{version}.tar.gz
-Source1: ftp://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-%{version}.tar.gz.asc
+Source0: http://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-%{version}.tar.gz
+Source1: http://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-%{version}.tar.gz.asc
 Source2: sshd.pam
 Source3: gpgkey-736060BA.gpg
 Source4: https://github.com/jbeverly/pam_ssh_agent_auth/archive/pam_ssh_agent_auth-%{pam_ssh_agent_ver}.tar.gz
@@ -125,9 +125,6 @@ Patch308: pam_ssh_agent_auth-0.10.4-rsasha2.patch
 Patch400: openssh-7.8p1-role-mls.patch
 #https://bugzilla.redhat.com/show_bug.cgi?id=781634
 Patch404: openssh-6.6p1-privsep-selinux.patch
-
-#?-- unwanted child :(
-Patch501: openssh-6.7p1-ldap.patch
 #?
 Patch502: openssh-6.6p1-keycat.patch
 
@@ -154,10 +151,6 @@ Patch707: openssh-7.7p1-redhat.patch
 Patch711: openssh-7.8p1-UsePAM-warning.patch
 # make aes-ctr ciphers use EVP engines such as AES-NI from OpenSSL
 Patch712: openssh-6.3p1-ctr-evp-fast.patch
-# add cavs test binary for the aes-ctr
-Patch713: openssh-6.6p1-ctr-cavstest.patch
-# add SSH KDF CAVS test driver
-Patch714: openssh-6.7p1-kdf-cavs.patch
 
 # GSSAPI Key Exchange (RFC 4462 + RFC 8732)
 # from https://github.com/openssh-gsskex/openssh-gsskex/tree/fedora/master
@@ -306,10 +299,11 @@ BuildRequires: pam-devel
 BuildRequires: openssl-devel >= 0.9.8j
 BuildRequires: perl-podlators
 BuildRequires: systemd-devel
-BuildRequires: gcc
+BuildRequires: gcc make
 BuildRequires: p11-kit-devel
 BuildRequires: libfido2-devel
-Recommends: p11-kit
+#Obsoletes: openssh-ldap < 8.3p1-4
+Obsoletes: openssh-cavs < 8.4p1-5
 
 %if %{kerberos5}
 BuildRequires: krb5-devel
@@ -364,11 +358,6 @@ Requires: openssh = %{version}-%{release}
 Obsoletes: openssh-askpass-gnome
 Provides: openssh-askpass-gnome
 
-%package cavs
-Summary: CAVS tests for FIPS validation
-Group: Applications/Internet
-Requires: openssh = %{version}-%{release}
-
 %package -n pam_ssh_agent_auth
 Summary: PAM module for authentication with ssh-agent
 Group: System Environment/Base
@@ -416,10 +405,6 @@ OpenSSH is a free version of SSH (Secure SHell), a program for logging
 into and executing commands on a remote machine. This package contains
 an X11 passphrase dialog for OpenSSH.
 
-%description cavs
-This package contains test binaries and scripts to make FIPS validation
-easier. Now contains CTR and KDF CAVS test driver.
-
 %description -n pam_ssh_agent_auth
 This package contains a PAM module which can be used to authenticate
 users using ssh keys stored in a ssh-agent. Through the use of the
@@ -449,9 +434,6 @@ popd
 %patch400 -p1 -b .role-mls
 %patch404 -p1 -b .privsep-selinux
 
-%if %{ldap}
-%patch501 -p1 -b .ldap
-%endif
 %patch502 -p1 -b .keycat
 
 %patch601 -p1 -b .ip-opts
@@ -464,8 +446,6 @@ popd
 %patch707 -p1 -b .redhat
 %patch711 -p1 -b .log-usepam-no
 %patch712 -p1 -b .evp-ctr
-%patch713 -p1 -b .ctr-cavs
-%patch714 -p1 -b .kdf-cavs
 # 
 %patch800 -p1 -b .gsskex
 %patch801 -p1 -b .force_krb
@@ -805,11 +785,6 @@ getent passwd sshd >/dev/null || \
 %attr(0755,root,root) %{_libexecdir}/openssh/gnome-ssh-askpass
 %attr(0755,root,root) %{_libexecdir}/openssh/ssh-askpass
 %endif
-
-%files cavs
-%attr(0755,root,root) %{_libexecdir}/openssh/ctr-cavstest
-%attr(0755,root,root) %{_libexecdir}/openssh/ssh-cavs
-%attr(0755,root,root) %{_libexecdir}/openssh/ssh-cavs_driver.pl
 
 %if %{pam_ssh_agent}
 %files -n pam_ssh_agent_auth
