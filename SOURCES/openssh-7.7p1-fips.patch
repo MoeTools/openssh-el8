@@ -447,15 +447,6 @@ diff -up openssh-8.6p1/sshkey.c.fips openssh-8.6p1/sshkey.c
  	/* Fill in ret from parsed key */
  	ret->type = type;
  	if (sshkey_is_cert(ret)) {
-@@ -1705,6 +1707,8 @@ rsa_generate_private_key(u_int bits, RSA
-		goto out;
-
-	if (EVP_PKEY_keygen(ctx, &res) <= 0) {
-+		if (FIPS_mode())
-+			logit_f("the key length might be unsupported by FIPS mode approved key generation method");
- 		ret = SSH_ERR_LIBCRYPTO_ERROR;
- 		goto out;
- 	}
 @@ -2916,6 +2916,11 @@ sshkey_sign(struct sshkey *key,
  		break;
  	case KEY_ED25519_SK:

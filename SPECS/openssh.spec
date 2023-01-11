@@ -481,7 +481,6 @@ popd
 %patch980 -p1 -b .sftpdirs
 %patch981 -p1 -b .scp-sftpdirs
 %patch982 -p1 -b .minrsabits
-%patch983 -p1 -b .evpgenrsa
 %patch984 -p1 -b .ibmca
 
 %patch200 -p1 -b .audit
