@@ -13,7 +13,7 @@ diff -up openssh-7.4p1/openbsd-compat/port-linux-sshd.c.privsep-selinux openssh-
 --- openssh-7.4p1/openbsd-compat/port-linux-sshd.c.privsep-selinux	2016-12-23 18:58:52.973122201 +0100
 +++ openssh-7.4p1/openbsd-compat/port-linux-sshd.c	2016-12-23 18:58:52.974122201 +0100
 @@ -419,6 +419,28 @@ sshd_selinux_setup_exec_context(char *pw
- 	debug3("%s: done", __func__);
+ 	debug3_f("done");
  }
  
 +void
@@ -25,15 +25,15 @@ diff -up openssh-7.4p1/openbsd-compat/port-linux-sshd.c.privsep-selinux openssh-
 +		return;
 +
 +	if (getexeccon((security_context_t *)&ctx) != 0) {
-+		logit("%s: getexeccon failed with %s", __func__, strerror(errno));
++		logit_f("getexeccon failed with %s", strerror(errno));
 +		return;
 +	}
 +	if (ctx != NULL) {
 +		/* unset exec context before we will lose this capabililty */
 +		if (setexeccon(NULL) != 0)
-+			fatal("%s: setexeccon failed with %s", __func__, strerror(errno));
++			fatal_f("setexeccon failed with %s", strerror(errno));
 +		if (setcon(ctx) != 0)
-+			fatal("%s: setcon failed with %s", __func__, strerror(errno));
++			fatal_f("setcon failed with %s", strerror(errno));
 +		freecon(ctx);
 +	}
 +}

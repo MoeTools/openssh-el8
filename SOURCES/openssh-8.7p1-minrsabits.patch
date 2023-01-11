@@ -1,0 +1,446 @@
+diff --git a/auth2-hostbased.c b/auth2-hostbased.c
+index 36b9d2f5..6b517db4 100644
+--- a/auth2-hostbased.c
++++ b/auth2-hostbased.c
+@@ -119,6 +119,11 @@ userauth_hostbased(struct ssh *ssh, const char *method)
+ 		    "(null)" : key->cert->signature_type);
+ 		goto done;
+ 	}
++	if ((r = sshkey_check_rsa_length(key,
++	    options.required_rsa_size)) != 0) {
++		logit_r(r, "refusing %s key", sshkey_type(key));
++		goto done;
++	}
+ 
+ 	if (!authctxt->valid || authctxt->user == NULL) {
+ 		debug2_f("disabled because of invalid user");
+diff --git a/auth2-pubkey.c b/auth2-pubkey.c
+index 962fd342..5d59febc 100644
+--- a/auth2-pubkey.c
++++ b/auth2-pubkey.c
+@@ -175,6 +175,11 @@ userauth_pubkey(struct ssh *ssh, const char *method)
+ 		    "(null)" : key->cert->signature_type);
+ 		goto done;
+ 	}
++	if ((r = sshkey_check_rsa_length(key,
++	    options.required_rsa_size)) != 0) {
++		logit_r(r, "refusing %s key", sshkey_type(key));
++		goto done;
++	}
+ 	key_s = format_key(key);
+ 	if (sshkey_is_cert(key))
+ 		ca_s = format_key(key->cert->signature_key);
+diff --git a/readconf.c b/readconf.c
+index 7f26c680..42be690b 100644
+--- a/readconf.c
++++ b/readconf.c
+@@ -174,7 +174,7 @@ typedef enum {
+ 	oStreamLocalBindMask, oStreamLocalBindUnlink, oRevokedHostKeys,
+ 	oFingerprintHash, oUpdateHostkeys, oHostbasedAcceptedAlgorithms,
+ 	oPubkeyAcceptedAlgorithms, oCASignatureAlgorithms, oProxyJump,
+-	oSecurityKeyProvider, oKnownHostsCommand,
++	oSecurityKeyProvider, oKnownHostsCommand, oRequiredRSASize,
+ 	oIgnore, oIgnoredUnknownOption, oDeprecated, oUnsupported
+ } OpCodes;
+ 
+@@ -320,6 +320,8 @@ static struct {
+ 	{ "proxyjump", oProxyJump },
+ 	{ "securitykeyprovider", oSecurityKeyProvider },
+ 	{ "knownhostscommand", oKnownHostsCommand },
++	{ "requiredrsasize", oRequiredRSASize },
++	{ "rsaminsize", oRequiredRSASize }, /* alias */
+ 
+ 	{ NULL, oBadOption }
+ };
+@@ -2176,6 +2177,10 @@ parse_pubkey_algos:
+ 			*charptr = xstrdup(arg);
+ 		break;
+ 
++	case oRequiredRSASize:
++		intptr = &options->required_rsa_size;
++		goto parse_int;
++
+ 	case oDeprecated:
+ 		debug("%s line %d: Deprecated option \"%s\"",
+ 		    filename, linenum, keyword);
+@@ -2423,6 +2428,7 @@ initialize_options(Options * options)
+ 	options->hostbased_accepted_algos = NULL;
+ 	options->pubkey_accepted_algos = NULL;
+ 	options->known_hosts_command = NULL;
++	options->required_rsa_size = -1;
+ }
+ 
+ /*
+@@ -2619,6 +2625,8 @@ fill_default_options(Options * options)
+ 	if (options->sk_provider == NULL)
+ 		options->sk_provider = xstrdup("$SSH_SK_PROVIDER");
+ #endif
++	if (options->required_rsa_size == -1)
++		options->required_rsa_size = SSH_RSA_MINIMUM_MODULUS_SIZE;
+ 
+ 	/* Expand KEX name lists */
+ 	all_cipher = cipher_alg_list(',', 0);
+@@ -3308,6 +3316,7 @@ dump_client_config(Options *o, const char *host)
+ 	dump_cfg_int(oNumberOfPasswordPrompts, o->number_of_password_prompts);
+ 	dump_cfg_int(oServerAliveCountMax, o->server_alive_count_max);
+ 	dump_cfg_int(oServerAliveInterval, o->server_alive_interval);
++	dump_cfg_int(oRequiredRSASize, o->required_rsa_size);
+ 
+ 	/* String options */
+ 	dump_cfg_string(oBindAddress, o->bind_address);
+diff --git a/readconf.h b/readconf.h
+index f647bd42..ffb5ec4f 100644
+--- a/readconf.h
++++ b/readconf.h
+@@ -176,6 +176,8 @@ typedef struct {
+ 
+ 	char   *known_hosts_command;
+ 
++	int	required_rsa_size;	/* minimum size of RSA keys */
++
+ 	char	*ignored_unknown; /* Pattern list of unknown tokens to ignore */
+ }       Options;
+ 
+diff --git a/servconf.c b/servconf.c
+index 29df0463..423772b1 100644
+--- a/servconf.c
++++ b/servconf.c
+@@ -195,6 +195,7 @@ initialize_server_options(ServerOptions *options)
+ 	options->fingerprint_hash = -1;
+ 	options->disable_forwarding = -1;
+ 	options->expose_userauth_info = -1;
++	options->required_rsa_size = -1;
+ }
+ 
+ /* Returns 1 if a string option is unset or set to "none" or 0 otherwise. */
+@@ -441,6 +442,8 @@ fill_default_server_options(ServerOptions *options)
+ 		options->expose_userauth_info = 0;
+ 	if (options->sk_provider == NULL)
+ 		options->sk_provider = xstrdup("internal");
++	if (options->required_rsa_size == -1)
++		options->required_rsa_size = SSH_RSA_MINIMUM_MODULUS_SIZE;
+ 
+ 	assemble_algorithms(options);
+ 
+@@ -517,6 +520,7 @@ typedef enum {
+ 	sStreamLocalBindMask, sStreamLocalBindUnlink,
+ 	sAllowStreamLocalForwarding, sFingerprintHash, sDisableForwarding,
+ 	sExposeAuthInfo, sRDomain, sPubkeyAuthOptions, sSecurityKeyProvider,
++	sRequiredRSASize,
+ 	sDeprecated, sIgnore, sUnsupported
+ } ServerOpCodes;
+ 
+@@ -676,6 +680,8 @@ static struct {
+ 	{ "rdomain", sRDomain, SSHCFG_ALL },
+ 	{ "casignaturealgorithms", sCASignatureAlgorithms, SSHCFG_ALL },
+ 	{ "securitykeyprovider", sSecurityKeyProvider, SSHCFG_GLOBAL },
++	{ "requiredrsasize", sRequiredRSASize, SSHCFG_ALL },
++	{ "rsaminsize", sRequiredRSASize, SSHCFG_ALL }, /* alias */
+ 	{ NULL, sBadOption, 0 }
+ };
+ 
+@@ -2438,6 +2443,10 @@ process_server_config_line_depth(ServerOptions *options, char *line,
+ 			*charptr = xstrdup(arg);
+ 		break;
+ 
++	case sRequiredRSASize:
++		intptr = &options->required_rsa_size;
++		goto parse_int;
++
+ 	case sDeprecated:
+ 	case sIgnore:
+ 	case sUnsupported:
+@@ -2610,6 +2619,7 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
+ 	M_CP_INTOPT(rekey_limit);
+ 	M_CP_INTOPT(rekey_interval);
+ 	M_CP_INTOPT(log_level);
++	M_CP_INTOPT(required_rsa_size);
+ 
+ 	/*
+ 	 * The bind_mask is a mode_t that may be unsigned, so we can't use
+@@ -2874,6 +2884,7 @@ dump_config(ServerOptions *o)
+ 	dump_cfg_int(sMaxSessions, o->max_sessions);
+ 	dump_cfg_int(sClientAliveInterval, o->client_alive_interval);
+ 	dump_cfg_int(sClientAliveCountMax, o->client_alive_count_max);
++	dump_cfg_int(sRequiredRSASize, o->required_rsa_size);
+ 	dump_cfg_oct(sStreamLocalBindMask, o->fwd_opts.streamlocal_bind_mask);
+ 
+ 	/* formatted integer arguments */
+diff --git a/servconf.h b/servconf.h
+index 8a04463e..9346155c 100644
+--- a/servconf.h
++++ b/servconf.h
+@@ -229,6 +229,7 @@ typedef struct {
+ 	int	expose_userauth_info;
+ 	u_int64_t timing_secret;
+ 	char   *sk_provider;
++	int	required_rsa_size;	/* minimum size of RSA keys */
+ }       ServerOptions;
+ 
+ /* Information about the incoming connection as used by Match */
+diff --git a/ssh.c b/ssh.c
+index 559bf2af..25be53d5 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -516,14 +516,22 @@ resolve_canonicalize(char **hostp, int port)
+ }
+ 
+ /*
+- * Check the result of hostkey loading, ignoring some errors and
+- * fatal()ing for others.
++ * Check the result of hostkey loading, ignoring some errors and either
++ * discarding the key or fatal()ing for others.
+  */
+ static void
+-check_load(int r, const char *path, const char *message)
++check_load(int r, struct sshkey **k, const char *path, const char *message)
+ {
+ 	switch (r) {
+ 	case 0:
++		/* Check RSA keys size and discard if undersized */
++		if (k != NULL && *k != NULL &&
++		    (r = sshkey_check_rsa_length(*k,
++		    options.required_rsa_size)) != 0) {
++			error_r(r, "load %s \"%s\"", message, path);
++			free(*k);
++			*k = NULL;
++		}
+ 		break;
+ 	case SSH_ERR_INTERNAL_ERROR:
+ 	case SSH_ERR_ALLOC_FAIL:
+@@ -1578,7 +1586,7 @@ main(int ac, char **av)
+ 	if ((o) >= sensitive_data.nkeys) \
+ 		fatal_f("pubkey out of array bounds"); \
+ 	check_load(sshkey_load_public(p, &(sensitive_data.keys[o]), NULL), \
+-	    p, "pubkey"); \
++	    &(sensitive_data.keys[o]), p, "pubkey"); \
+ } while (0)
+ #define L_CERT(p,o) do { \
+ 	if ((o) >= sensitive_data.nkeys) \
+@@ -1586,7 +1594,8 @@ main(int ac, char **av)
+ #define L_CERT(p,o) do { \
+ 	if ((o) >= sensitive_data.nkeys) \
+ 		fatal_f("cert out of array bounds"); \
+-	check_load(sshkey_load_cert(p, &(sensitive_data.keys[o])), p, "cert"); \
++	check_load(sshkey_load_cert(p, &(sensitive_data.keys[o])), \
++	    &(sensitive_data.keys[o]), p, "cert"); \
+ } while (0)
+ 
+ 		if (options.hostbased_authentication == 1) {
+@@ -2244,7 +2253,7 @@ load_public_identity_files(const struct ssh_conn_info *cinfo)
+ 		filename = default_client_percent_dollar_expand(cp, cinfo);
+ 		free(cp);
+ 		check_load(sshkey_load_public(filename, &public, NULL),
+-		    filename, "pubkey");
++		    &public, filename, "pubkey");
+ 		debug("identity file %s type %d", filename,
+ 		    public ? public->type : -1);
+ 		free(options.identity_files[i]);
+@@ -2284,7 +2293,7 @@ load_public_identity_files(const struct ssh_conn_info *cinfo)
+ 			continue;
+ 		xasprintf(&cp, "%s-cert", filename);
+ 		check_load(sshkey_load_public(cp, &public, NULL),
+-		    filename, "pubkey");
++		    &public, filename, "pubkey");
+ 		debug("identity file %s type %d", cp,
+ 		    public ? public->type : -1);
+ 		if (public == NULL) {
+@@ -2315,7 +2324,7 @@ load_public_identity_files(const struct ssh_conn_info *cinfo)
+ 		free(cp);
+ 
+ 		check_load(sshkey_load_public(filename, &public, NULL),
+-		    filename, "certificate");
++		    &public, filename, "certificate");
+ 		debug("certificate file %s type %d", filename,
+ 		    public ? public->type : -1);
+ 		free(options.certificate_files[i]);
+diff --git a/sshconnect2.c b/sshconnect2.c
+index f9bd19ea..58fe98db 100644
+--- a/sshconnect2.c
++++ b/sshconnect2.c
+@@ -96,6 +96,11 @@ static const struct ssh_conn_info *xxx_conn_info;
+ static int
+ verify_host_key_callback(struct sshkey *hostkey, struct ssh *ssh)
+ {
++	int r;
++
++	if ((r = sshkey_check_rsa_length(hostkey,
++	    options.required_rsa_size)) != 0)
++		fatal_r(r, "Bad server host key");
+ 	if (verify_host_key(xxx_host, xxx_hostaddr, hostkey,
+ 	    xxx_conn_info) == -1)
+ 		fatal("Host key verification failed.");
+@@ -1606,6 +1611,13 @@ load_identity_file(Identity *id)
+ 			private = NULL;
+ 			quit = 1;
+ 		}
++		if (!quit && (r = sshkey_check_rsa_length(private,
++		    options.required_rsa_size)) != 0) {
++			debug_fr(r, "Skipping key %s", id->filename);
++			sshkey_free(private);
++			private = NULL;
++			quit = 1;
++		}
+ 		if (!quit && private != NULL && id->agent_fd == -1 &&
+ 		    !(id->key && id->isprivate))
+ 			maybe_add_key_to_agent(id->filename, private, comment,
+@@ -1752,6 +1764,12 @@ pubkey_prepare(struct ssh *ssh, Authctxt *authctxt)
+		close(agent_fd);
+	} else {
+ 		for (j = 0; j < idlist->nkeys; j++) {
++			if ((r = sshkey_check_rsa_length(idlist->keys[j],
++			    options.required_rsa_size)) != 0) {
++				debug_fr(r, "ignoring %s agent key",
++				    sshkey_ssh_name(idlist->keys[j]));
++				continue;
++			}
+ 			found = 0;
+ 			TAILQ_FOREACH(id, &files, next) {
+ 				/*
+diff --git a/sshd.c b/sshd.c
+index 17eee9d8..395ef493 100644
+--- a/sshd.c
++++ b/sshd.c
+@@ -1870,6 +1870,13 @@ main(int ac, char **av)
+ 				fatal_r(r, "Could not demote key: \"%s\"",
+ 				    options.host_key_files[i]);
+ 		}
++		if (pubkey != NULL && (r = sshkey_check_rsa_length(pubkey,
++		    options.required_rsa_size)) != 0) {
++			error_fr(r, "Host key %s", options.host_key_files[i]);
++			sshkey_free(pubkey);
++			sshkey_free(key);
++			continue;
++		}
+ 		sensitive_data.host_keys[i] = key;
+ 		sensitive_data.host_pubkeys[i] = pubkey;
+ 
+diff --git a/sshkey.c b/sshkey.c
+index ed2b5dff..77093235 100644
+--- a/sshkey.c
++++ b/sshkey.c
+@@ -2365,18 +2365,24 @@ cert_parse(struct sshbuf *b, struct sshkey *key, struct sshbuf *certbuf)
+ 	return ret;
+ }
+ 
+-#ifdef WITH_OPENSSL
+-static int
+-check_rsa_length(const RSA *rsa)
++int
++sshkey_check_rsa_length(const struct sshkey *k, int min_size)
+ {
++#ifdef WITH_OPENSSL
+ 	const BIGNUM *rsa_n;
++	int nbits;
+ 
+-	RSA_get0_key(rsa, &rsa_n, NULL, NULL);
+-	if (BN_num_bits(rsa_n) < SSH_RSA_MINIMUM_MODULUS_SIZE)
++	if (k == NULL || k->rsa == NULL ||
++	    (k->type != KEY_RSA && k->type != KEY_RSA_CERT))
++		return 0;
++	RSA_get0_key(k->rsa, &rsa_n, NULL, NULL);
++	nbits = BN_num_bits(rsa_n);
++	if (nbits < SSH_RSA_MINIMUM_MODULUS_SIZE ||
++	    (min_size > 0 && nbits < min_size))
+ 		return SSH_ERR_KEY_LENGTH;
++#endif /* WITH_OPENSSL */
+ 	return 0;
+ }
+-#endif
+ 
+ static int
+ sshkey_from_blob_internal(struct sshbuf *b, struct sshkey **keyp,
+@@ -2439,7 +2445,7 @@ sshkey_from_blob_internal(struct sshbuf *b, struct sshkey **keyp,
+ 			goto out;
+ 		}
+ 		rsa_n = rsa_e = NULL; /* transferred */
+-		if ((ret = check_rsa_length(key->rsa)) != 0)
++		if ((ret = sshkey_check_rsa_length(key, 0)) != 0)
+ 			goto out;
+ #ifdef DEBUG_PK
+ 		RSA_print_fp(stderr, key->rsa, 8);
+@@ -3642,7 +3648,7 @@ sshkey_private_deserialize(struct sshbuf *buf, struct sshkey **kp)
+ 			goto out;
+ 		}
+ 		rsa_p = rsa_q = NULL; /* transferred */
+-		if ((r = check_rsa_length(k->rsa)) != 0)
++		if ((r = sshkey_check_rsa_length(k, 0)) != 0)
+ 			goto out;
+ 		if ((r = ssh_rsa_complete_crt_parameters(k, rsa_iqmp)) != 0)
+ 			goto out;
+@@ -4644,7 +4650,7 @@ sshkey_parse_private_pem_fileblob(struct sshbuf *blob, int type,
+ 			r = SSH_ERR_LIBCRYPTO_ERROR;
+ 			goto out;
+ 		}
+-		if ((r = check_rsa_length(prv->rsa)) != 0)
++		if ((r = sshkey_check_rsa_length(prv, 0)) != 0)
+ 			goto out;
+ 	} else if (EVP_PKEY_base_id(pk) == EVP_PKEY_DSA &&
+ 	    (type == KEY_UNSPEC || type == KEY_DSA)) {
+diff --git a/sshkey.h b/sshkey.h
+index 094815e0..be254e6b 100644
+--- a/sshkey.h
++++ b/sshkey.h
+@@ -273,6 +273,7 @@ int	sshkey_parse_private_fileblob_type(struct sshbuf *blob, int type,
+ int	sshkey_parse_pubkey_from_private_fileblob_type(struct sshbuf *blob,
+     int type, struct sshkey **pubkeyp);
+ 
++int sshkey_check_rsa_length(const struct sshkey *, int);
+ /* XXX should be internal, but used by ssh-keygen */
+ int ssh_rsa_complete_crt_parameters(struct sshkey *, const BIGNUM *);
+ 
+diff --git a/ssh.1 b/ssh.1
+index b4956aec..e255b9b9 100644
+--- a/ssh.1
++++ b/ssh.1
+@@ -571,6 +571,7 @@ For full details of the options listed below, and their possible values, see
+ .It RemoteCommand
+ .It RemoteForward
+ .It RequestTTY
++.It RequiredRSASize
+ .It SendEnv
+ .It ServerAliveInterval
+ .It ServerAliveCountMax
+diff --git a/ssh_config.5 b/ssh_config.5
+index 24a46460..d1ede18e 100644
+--- a/ssh_config.5
++++ b/ssh_config.5
+@@ -1634,6 +1634,17 @@ and
+ .Fl T
+ flags for
+ .Xr ssh 1 .
++.It Cm RequiredRSASize
++Specifies the minimum RSA key size (in bits) that
++.Xr ssh 1
++will accept.
++User authentication keys smaller than this limit will be ignored.
++Servers that present host keys smaller than this limit will cause the
++connection to be terminated.
++The default is
++.Cm 1024
++bits.
++Note that this limit may only be raised from the default.
+ .It Cm RevokedHostKeys
+ Specifies revoked host public keys.
+ Keys listed in this file will be refused for host authentication.
+diff --git a/sshd_config.5 b/sshd_config.5
+index 867a747d..f5a06637 100644
+--- a/sshd_config.5
++++ b/sshd_config.5
+@@ -1596,6 +1596,16 @@ is
+ .Cm default none ,
+ which means that rekeying is performed after the cipher's default amount
+ of data has been sent or received and no time based rekeying is done.
++.It Cm RequiredRSASize
++Specifies the minimum RSA key size (in bits) that
++.Xr sshd 8
++will accept.
++User and host-based authentication keys smaller than this limit will be
++refused.
++The default is
++.Cm 1024
++bits.
++Note that this limit may only be raised from the default.
+ .It Cm RevokedKeys
+ Specifies revoked public keys file, or
+ .Cm none

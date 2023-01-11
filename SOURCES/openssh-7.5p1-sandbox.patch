@@ -69,29 +69,6 @@ index 6e7de31..e86aa2c 100644
  	SC_ALLOW(__NR_getrandom),
  #endif
 -- 1.9.1
-
-The EP11 crypto card needs to make an ioctl call, which receives an
-specific argument. This crypto card is for s390 only.
-
-Signed-off-by: Eduardo Barretto <ebarretto@xxxxxxxxxxxxxxxxxx>
----
- sandbox-seccomp-filter.c | 2 ++
- 1 file changed, 2 insertions(+)
-
-diff --git a/sandbox-seccomp-filter.c b/sandbox-seccomp-filter.c
-index e86aa2c..98062f1 100644
---- a/sandbox-seccomp-filter.c
-+++ b/sandbox-seccomp-filter.c
-@@ -250,6 +250,8 @@ static const struct sock_filter preauth_insns[] = {
- 	SC_ALLOW_ARG(__NR_ioctl, 1, Z90STAT_STATUS_MASK),
- 	SC_ALLOW_ARG(__NR_ioctl, 1, ICARSAMODEXPO),
- 	SC_ALLOW_ARG(__NR_ioctl, 1, ICARSACRT),
-+	/* Allow ioctls for EP11 crypto card on s390 */
-+	SC_ALLOW_ARG(__NR_ioctl, 1, ZSENDEP11CPRB),
- #endif
- #if defined(__x86_64__) && defined(__ILP32__) && defined(__X32_SYSCALL_BIT)
- 	/*
--- 
 1.9.1
 diff -up openssh-7.6p1/sandbox-seccomp-filter.c.sandbox openssh-7.6p1/sandbox-seccomp-filter.c
 --- openssh-7.6p1/sandbox-seccomp-filter.c.sandbox	2017-12-12 13:59:30.563874059 +0100
@@ -107,40 +84,3 @@ diff -up openssh-7.6p1/sandbox-seccomp-filter.c.sandbox openssh-7.6p1/sandbox-se
  	SC_ALLOW(__NR_getrandom),
  #endif
 
-
-From ef34ea4521b042dd8a9c4c7455f5d1a8f8ee5bb2 Mon Sep 17 00:00:00 2001
-From: Harald Freudenberger <freude@linux.ibm.com>
-Date: Fri, 24 May 2019 10:11:15 +0200
-Subject: [PATCH] allow s390 specific ioctl for ecc hardware support
-
-Adding another s390 specific ioctl to be able to support ECC hardware acceleration
-to the sandbox seccomp filter rules.
-
-Now the ibmca openssl engine provides elliptic curve cryptography support with the
-help of libica and CCA crypto cards. This is done via jet another ioctl call to the zcrypt
-device driver and so there is a need to enable this on the openssl sandbox.
-
-Code is s390 specific and has been tested, verified and reviewed.
-
-Please note that I am also the originator of the previous changes in that area.
-I posted these changes to Eduardo and he forwarded the patches to the openssl
-community.
-
-Signed-off-by: Harald Freudenberger <freude@linux.ibm.com>
-Reviewed-by: Joerg Schmidbauer <jschmidb@de.ibm.com>
----
- sandbox-seccomp-filter.c | 1 +
- 1 file changed, 1 insertion(+)
-
-diff --git a/sandbox-seccomp-filter.c b/sandbox-seccomp-filter.c
-index 5edbc6946..56eb9317f 100644
---- a/sandbox-seccomp-filter.c
-+++ b/sandbox-seccomp-filter.c
-@@ -252,6 +252,7 @@ static const struct sock_filter preauth_insns[] = {
- 	SC_ALLOW_ARG(__NR_ioctl, 1, ICARSACRT),
- 	/* Allow ioctls for EP11 crypto card on s390 */
- 	SC_ALLOW_ARG(__NR_ioctl, 1, ZSENDEP11CPRB),
-+	SC_ALLOW_ARG(__NR_ioctl, 1, ZSECSENDCPRB),
- #endif
- #if defined(__x86_64__) && defined(__ILP32__) && defined(__X32_SYSCALL_BIT)
- 	/*

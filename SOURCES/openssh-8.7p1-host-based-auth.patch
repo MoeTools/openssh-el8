@@ -1,0 +1,151 @@
+diff --color -rup a/sshconnect2.c b/sshconnect2.c
+--- a/sshconnect2.c	2022-07-11 17:00:02.618575727 +0200
++++ b/sshconnect2.c	2022-07-11 17:03:05.096085690 +0200
+@@ -2288,9 +2288,9 @@ userauth_hostbased(struct ssh *ssh)
+ 			if (authctxt->sensitive->keys[i] == NULL ||
+ 			    authctxt->sensitive->keys[i]->type == KEY_UNSPEC)
+ 				continue;
+-			if (match_pattern_list(
++			if (!sshkey_match_keyname_to_sigalgs(
+ 			    sshkey_ssh_name(authctxt->sensitive->keys[i]),
+-			    authctxt->active_ktype, 0) != 1)
++			    authctxt->active_ktype))
+ 				continue;
+ 			/* we take and free the key */
+ 			private = authctxt->sensitive->keys[i];
+@@ -2316,7 +2316,8 @@ userauth_hostbased(struct ssh *ssh)
+ 		error_f("sshkey_fingerprint failed");
+ 		goto out;
+ 	}
+-	debug_f("trying hostkey %s %s", sshkey_ssh_name(private), fp);
++	debug_f("trying hostkey %s %s using sigalg %s",
++		sshkey_ssh_name(private), fp, authctxt->active_ktype);
+ 
+ 	/* figure out a name for the client host */
+ 	lname = get_local_name(ssh_packet_get_connection_in(ssh));
+diff --color -rup a/sshkey.c b/sshkey.c
+--- a/sshkey.c	2022-07-11 17:00:02.609575554 +0200
++++ b/sshkey.c	2022-07-11 17:12:30.905976443 +0200
+@@ -252,6 +252,29 @@ sshkey_ecdsa_nid_from_name(const char *n
+ 	return -1;
+ }
+ 
++int
++sshkey_match_keyname_to_sigalgs(const char *keyname, const char *sigalgs)
++{
++	int ktype;
++
++	if (sigalgs == NULL || *sigalgs == '\0' ||
++	    (ktype = sshkey_type_from_name(keyname)) == KEY_UNSPEC)
++		return 0;
++	else if (ktype == KEY_RSA) {
++		return match_pattern_list("ssh-rsa", sigalgs, 0) == 1 ||
++		    match_pattern_list("rsa-sha2-256", sigalgs, 0) == 1 ||
++		    match_pattern_list("rsa-sha2-512", sigalgs, 0) == 1;
++	} else if (ktype == KEY_RSA_CERT) {
++		return match_pattern_list("ssh-rsa-cert-v01@openssh.com",
++		    sigalgs, 0) == 1 ||
++		    match_pattern_list("rsa-sha2-256-cert-v01@openssh.com",
++		    sigalgs, 0) == 1 ||
++		    match_pattern_list("rsa-sha2-512-cert-v01@openssh.com",
++		    sigalgs, 0) == 1;
++	} else
++		return match_pattern_list(keyname, sigalgs, 0) == 1;
++}
++
+ char *
+ sshkey_alg_list(int certs_only, int plain_only, int include_sigonly, char sep)
+ {
+diff --color -rup a/sshkey.h b/sshkey.h
+--- a/sshkey.h	2022-07-11 17:00:02.603575438 +0200
++++ b/sshkey.h	2022-07-11 17:13:01.052556879 +0200
+@@ -194,6 +194,10 @@ int	 sshkey_is_cert(const struct sshkey
+ int	 sshkey_is_sk(const struct sshkey *);
+ int	 sshkey_type_is_cert(int);
+ int	 sshkey_type_plain(int);
++
++/* Returns non-zero if key name match sigalgs pattern list. (handles RSA) */
++int	 sshkey_match_keyname_to_sigalgs(const char *, const char *);
++
+ int	 sshkey_to_certified(struct sshkey *);
+ int	 sshkey_drop_cert(struct sshkey *);
+ int	 sshkey_cert_copy(const struct sshkey *, struct sshkey *);
+diff --color -rup a/ssh-keysign.c b/ssh-keysign.c
+--- a/ssh-keysign.c	2021-08-20 06:03:49.000000000 +0200
++++ b/ssh-keysign.c	2022-07-11 17:00:23.306973667 +0200
+@@ -62,7 +62,7 @@
+ extern char *__progname;
+ 
+ static int
+-valid_request(struct passwd *pw, char *host, struct sshkey **ret,
++valid_request(struct passwd *pw, char *host, struct sshkey **ret, char **pkalgp,
+     u_char *data, size_t datalen)
+ {
+ 	struct sshbuf *b;
+@@ -75,6 +75,8 @@ valid_request(struct passwd *pw, char *h
+ 
+ 	if (ret != NULL)
+ 		*ret = NULL;
++	if (pkalgp != NULL)
++		*pkalgp = NULL;
+ 	fail = 0;
+ 
+ 	if ((b = sshbuf_from(data, datalen)) == NULL)
+@@ -122,8 +124,6 @@ valid_request(struct passwd *pw, char *h
+ 		fail++;
+ 	} else if (key->type != pktype)
+ 		fail++;
+-	free(pkalg);
+-	free(pkblob);
+ 
+ 	/* client host name, handle trailing dot */
+ 	if ((r = sshbuf_get_cstring(b, &p, &len)) != 0)
+@@ -154,8 +154,19 @@ valid_request(struct passwd *pw, char *h
+ 
+ 	if (fail)
+ 		sshkey_free(key);
+-	else if (ret != NULL)
+-		*ret = key;
++	else {
++		if (ret != NULL) {
++			*ret = key;
++			key = NULL;
++		}
++		if (pkalgp != NULL) {
++			*pkalgp = pkalg;
++			pkalg = NULL;
++		}
++	}
++	sshkey_free(key);
++	free(pkalg);
++	free(pkblob);
+ 
+ 	return (fail ? -1 : 0);
+ }
+@@ -170,7 +181,7 @@ main(int argc, char **argv)
+ 	struct passwd *pw;
+ 	int r, key_fd[NUM_KEYTYPES], i, found, version = 2, fd;
+ 	u_char *signature, *data, rver;
+-	char *host, *fp;
++	char *host, *fp, *pkalg;
+ 	size_t slen, dlen;
+ 
+ 	if (pledge("stdio rpath getpw dns id", NULL) != 0)
+@@ -258,7 +269,7 @@ main(int argc, char **argv)
+ 
+ 	if ((r = sshbuf_get_string(b, &data, &dlen)) != 0)
+ 		fatal_r(r, "%s: buffer error", __progname);
+-	if (valid_request(pw, host, &key, data, dlen) < 0)
++	if (valid_request(pw, host, &key, &pkalg, data, dlen) < 0)
+ 		fatal("%s: not a valid request", __progname);
+ 	free(host);
+ 
+@@ -279,7 +290,7 @@ main(int argc, char **argv)
+ 	}
+ 
+ 	if ((r = sshkey_sign(keys[i], &signature, &slen, data, dlen,
+-	    NULL, NULL, NULL, 0)) != 0)
++	    pkalg, NULL, NULL, 0)) != 0)
+ 		fatal_r(r, "%s: sshkey_sign failed", __progname);
+ 	free(data);
+ 

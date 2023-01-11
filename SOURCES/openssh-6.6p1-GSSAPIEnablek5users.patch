@@ -28,7 +28,7 @@ diff -up openssh-7.4p1/servconf.c.GSSAPIEnablek5users openssh-7.4p1/servconf.c
 +	options->enable_k5users = -1;
  	options->password_authentication = -1;
  	options->kbd_interactive_authentication = -1;
- 	options->challenge_response_authentication = -1;
+	options->permit_empty_passwd = -1;
 @@ -345,6 +346,8 @@ fill_default_server_options(ServerOption
  #endif
  	if (options->use_kuserok == -1)
@@ -39,8 +39,8 @@ diff -up openssh-7.4p1/servconf.c.GSSAPIEnablek5users openssh-7.4p1/servconf.c
  		options->password_authentication = 1;
  	if (options->kbd_interactive_authentication == -1)
 @@ -418,7 +421,7 @@ typedef enum {
- 	sHostbasedUsesNameFromPacketOnly, sHostbasedAcceptedKeyTypes,
- 	sHostKeyAlgorithms,
+ 	sHostbasedUsesNameFromPacketOnly, sHostbasedAcceptedAlgorithms,
+ 	sHostKeyAlgorithms, sPerSourceMaxStartups, sPerSourceNetBlockSize,
  	sClientAliveInterval, sClientAliveCountMax, sAuthorizedKeysFile,
 -	sGssAuthentication, sGssCleanupCreds, sGssStrictAcceptor,
 +	sGssAuthentication, sGssCleanupCreds, sGssEnablek5users, sGssStrictAcceptor,
@@ -72,9 +72,9 @@ diff -up openssh-7.4p1/servconf.c.GSSAPIEnablek5users openssh-7.4p1/servconf.c
 +		intptr = &options->enable_k5users;
 +		goto parse_flag;
 +
- 	case sPermitListen:
- 	case sPermitOpen:
- 		if (opcode == sPermitListen) {
+	case sMatch:
+		if (cmdline)
+			fatal("Match directive not supported as a command-line "
 @@ -2026,6 +2035,7 @@ copy_set_server_options(ServerOptions *d
  	M_CP_INTOPT(ip_qos_interactive);
  	M_CP_INTOPT(ip_qos_bulk);
@@ -122,7 +122,7 @@ diff -up openssh-7.4p1/sshd_config.GSSAPIEnablek5users openssh-7.4p1/sshd_config
 --- openssh-7.4p1/sshd_config.GSSAPIEnablek5users	2016-12-23 15:18:40.616216100 +0100
 +++ openssh-7.4p1/sshd_config	2016-12-23 15:18:40.631216103 +0100
 @@ -80,6 +80,7 @@ GSSAPIAuthentication yes
- GSSAPICleanupCredentials no
+ #GSSAPICleanupCredentials yes
  #GSSAPIStrictAcceptorCheck yes
  #GSSAPIKeyExchange no
 +#GSSAPIEnablek5users no

@@ -1,10 +1,10 @@
-diff -up openssh/auth.c.keycat openssh/misc.c
---- openssh/auth.c.keycat	2015-06-24 10:57:50.158849606 +0200
-+++ openssh/auth.c	2015-06-24 11:04:23.989868638 +0200
-@@ -966,6 +966,14 @@ subprocess(const char *tag, struct passw
+diff -up openssh/misc.c.keycat openssh/misc.c
+--- openssh/misc.c.keycat	2015-06-24 10:57:50.158849606 +0200
++++ openssh/misc.c	2015-06-24 11:04:23.989868638 +0200
+@@ -966,6 +966,13 @@ subprocess(const char *tag, struct passw
+ 			error("%s: dup2: %s", tag, strerror(errno));
  			_exit(1);
  		}
- 
 +#ifdef WITH_SELINUX
 +		if (sshd_selinux_setup_env_variables() < 0) {
 +			error ("failed to copy environment:  %s",
@@ -12,10 +12,9 @@ diff -up openssh/auth.c.keycat openssh/misc.c
 +			_exit(127);
 +		}
 +#endif
-+
- 		execve(av[0], av, child_env);
- 		error("%s exec \"%s\": %s", tag, command, strerror(errno));
- 		_exit(127);
+ 		if (env != NULL)
+ 			execve(av[0], av, env);
+ 		else
 diff -up openssh/HOWTO.ssh-keycat.keycat openssh/HOWTO.ssh-keycat
 --- openssh/HOWTO.ssh-keycat.keycat	2015-06-24 10:57:50.157849608 +0200
 +++ openssh/HOWTO.ssh-keycat	2015-06-24 10:57:50.157849608 +0200
@@ -36,44 +35,44 @@ diff -up openssh/Makefile.in.keycat openssh/Makefile.in
 --- openssh/Makefile.in.keycat	2015-06-24 10:57:50.152849621 +0200
 +++ openssh/Makefile.in	2015-06-24 10:57:50.157849608 +0200
 @@ -27,6 +27,7 @@ SFTP_SERVER=$(libexecdir)/sftp-server
+ ASKPASS_PROGRAM=$(libexecdir)/ssh-askpass
+ SFTP_SERVER=$(libexecdir)/sftp-server
  SSH_KEYSIGN=$(libexecdir)/ssh-keysign
- SSH_LDAP_HELPER=$(libexecdir)/ssh-ldap-helper
- SSH_LDAP_WRAPPER=$(libexecdir)/ssh-ldap-wrapper
 +SSH_KEYCAT=$(libexecdir)/ssh-keycat
  SSH_PKCS11_HELPER=$(libexecdir)/ssh-pkcs11-helper
+ SSH_SK_HELPER=$(libexecdir)/ssh-sk-helper
  PRIVSEP_PATH=@PRIVSEP_PATH@
- SSH_PRIVSEP_USER=@SSH_PRIVSEP_USER@
 @@ -52,6 +52,7 @@ K5LIBS=@K5LIBS@
+ K5LIBS=@K5LIBS@
  GSSLIBS=@GSSLIBS@
- SSHLIBS=@SSHLIBS@
  SSHDLIBS=@SSHDLIBS@
 +KEYCATLIBS=@KEYCATLIBS@
  LIBEDIT=@LIBEDIT@
+ LIBFIDO2=@LIBFIDO2@
  AR=@AR@
- AWK=@AWK@
 @@ -65,7 +66,7 @@ EXEEXT=@EXEEXT@
- MKDIR_P=@MKDIR_P@
- INSTALL_SSH_LDAP_HELPER=@INSTALL_SSH_LDAP_HELPER@
  
--TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keyscan${EXEEXT} ssh-keysign${EXEEXT} ssh-pkcs11-helper$(EXEEXT) ssh-agent$(EXEEXT) scp$(EXEEXT) sftp-server$(EXEEXT) sftp$(EXEEXT) ssh-ldap-helper$(EXEEXT)
-+TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keyscan${EXEEXT} ssh-keysign${EXEEXT} ssh-pkcs11-helper$(EXEEXT) ssh-agent$(EXEEXT) scp$(EXEEXT) sftp-server$(EXEEXT) sftp$(EXEEXT) ssh-ldap-helper$(EXEEXT) ssh-keycat$(EXEEXT)
+ .SUFFIXES: .lo
+ 
+-TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keyscan${EXEEXT} ssh-keysign${EXEEXT} ssh-pkcs11-helper$(EXEEXT) ssh-agent$(EXEEXT) scp$(EXEEXT) sftp-server$(EXEEXT) sftp$(EXEEXT) ssh-sk-helper$(EXEEXT)
++TARGETS=ssh$(EXEEXT) sshd$(EXEEXT) ssh-add$(EXEEXT) ssh-keygen$(EXEEXT) ssh-keyscan${EXEEXT} ssh-keysign${EXEEXT} ssh-pkcs11-helper$(EXEEXT) ssh-agent$(EXEEXT) scp$(EXEEXT) sftp-server$(EXEEXT) sftp$(EXEEXT) ssh-sk-helper$(EXEEXT) ssh-keycat$(EXEEXT)
  
  XMSS_OBJS=\
  	ssh-xmss.o \
 @@ -190,6 +191,9 @@ ssh-pkcs11-helper$(EXEEXT): $(LIBCOMPAT)
- ssh-ldap-helper$(EXEEXT): $(LIBCOMPAT) libssh.a ldapconf.o ldapbody.o ldapmisc.o ldap-helper.o
- 	$(LD) -o $@ ldapconf.o ldapbody.o ldapmisc.o ldap-helper.o $(LDFLAGS) -lssh -lopenbsd-compat -lssh -lopenbsd-compat $(LIBS) $(LDAPLIBS)
+ ssh-sk-helper$(EXEEXT): $(LIBCOMPAT) libssh.a $(SKHELPER_OBJS)
+ 	$(LD) -o $@ $(SKHELPER_OBJS) $(LDFLAGS) -lssh -lopenbsd-compat -lssh -lopenbsd-compat $(LIBS) $(LIBFIDO2)
  
 +ssh-keycat$(EXEEXT): $(LIBCOMPAT) $(SSHDOBJS) libssh.a ssh-keycat.o uidswap.o
 +	$(LD) -o $@ ssh-keycat.o uidswap.o $(LDFLAGS) -lssh -lopenbsd-compat $(KEYCATLIBS) $(LIBS)
 +
- ssh-keyscan$(EXEEXT): $(LIBCOMPAT) libssh.a ssh-keyscan.o
- 	$(LD) -o $@ ssh-keyscan.o $(LDFLAGS) -lssh -lopenbsd-compat -lssh $(LIBS)
+ ssh-keyscan$(EXEEXT): $(LIBCOMPAT) libssh.a $(SSHKEYSCAN_OBJS)
+ 	$(LD) -o $@ $(SSHKEYSCAN_OBJS) $(LDFLAGS) -lssh -lopenbsd-compat -lssh $(LIBS)
  
 @@ -321,6 +325,7 @@ install-files:
- 		$(INSTALL) -m 0700 $(STRIP_OPT) ssh-ldap-helper $(DESTDIR)$(SSH_LDAP_HELPER) ; \
- 		$(INSTALL) -m 0700 ssh-ldap-wrapper $(DESTDIR)$(SSH_LDAP_WRAPPER) ; \
- 	fi
+ 	$(INSTALL) -m 4711 $(STRIP_OPT) ssh-keysign$(EXEEXT) $(DESTDIR)$(SSH_KEYSIGN)$(EXEEXT)
+ 	$(INSTALL) -m 0755 $(STRIP_OPT) ssh-pkcs11-helper$(EXEEXT) $(DESTDIR)$(SSH_PKCS11_HELPER)$(EXEEXT)
+ 	$(INSTALL) -m 0755 $(STRIP_OPT) ssh-sk-helper$(EXEEXT) $(DESTDIR)$(SSH_SK_HELPER)$(EXEEXT)
 +	$(INSTALL) -m 0755 $(STRIP_OPT) ssh-keycat$(EXEEXT) $(DESTDIR)$(libexecdir)/ssh-keycat$(EXEEXT)
  	$(INSTALL) -m 0755 $(STRIP_OPT) sftp$(EXEEXT) $(DESTDIR)$(bindir)/sftp$(EXEEXT)
  	$(INSTALL) -m 0755 $(STRIP_OPT) sftp-server$(EXEEXT) $(DESTDIR)$(SFTP_SERVER)$(EXEEXT)
@@ -466,16 +465,16 @@ index 3bbccfd..6481f1f 100644
  				esac
  			fi
 @@ -4042,6 +4044,7 @@ AC_ARG_WITH([selinux],
+ 	fi ]
  )
- AC_SUBST([SSHLIBS])
  AC_SUBST([SSHDLIBS])
 +AC_SUBST([KEYCATLIBS])
  
  # Check whether user wants Kerberos 5 support
  KRB5_MSG="no"
 @@ -5031,6 +5034,9 @@ fi
- if test ! -z "${SSHLIBS}"; then
- echo "          +for ssh: ${SSHLIBS}"
+ if test ! -z "${SSHDLIBS}"; then
+ echo "         +for sshd: ${SSHDLIBS}"
  fi
 +if test ! -z "${KEYCATLIBS}"; then
 +echo "   +for ssh-keycat: ${KEYCATLIBS}"

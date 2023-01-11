@@ -10,5 +10,5 @@
 +		}
  		omode = mode;
  		mode |= S_IWUSR;
- 		if ((ofd = open(np, O_WRONLY|O_CREAT, mode)) < 0) {
+ 		if ((ofd = open(np, O_WRONLY|O_CREAT, mode)) == -1) {
 -- 

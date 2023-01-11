@@ -34,19 +34,19 @@ index 8f32464..18a2ca4 100644
 +
 +	contexts_path = selinux_openssh_contexts_path();
 +	if (contexts_path == NULL) {
-+		debug3("%s: Failed to get the path to SELinux context", __func__);
++		debug3_f("Failed to get the path to SELinux context");
 +		return;
 +	}
 +
 +	if ((contexts_file = fopen(contexts_path, "r")) == NULL) {
-+		debug("%s: Failed to open SELinux context file", __func__);
++		debug_f("Failed to open SELinux context file");
 +		return;
 +	}
 +
 +	if (fstat(fileno(contexts_file), &sb) != 0 ||
 +	    sb.st_uid != 0 || (sb.st_mode & 022) != 0) {
-+		logit("%s: SELinux context file needs to be owned by root"
-+		    " and not writable by anyone else", __func__);
++		logit_f("SELinux context file needs to be owned by root"
++		    " and not writable by anyone else");
 +		fclose(contexts_file);
 +		return;
 +	}
@@ -70,7 +70,7 @@ index 8f32464..18a2ca4 100644
 +		if (arg && strcmp(arg, "privsep_preauth") == 0) {
 +			arg = strdelim(&cp);
 +			if (!arg || *arg == '\0') {
-+				debug("%s: privsep_preauth is empty", __func__);
++				debug_f("privsep_preauth is empty");
 +				fclose(contexts_file);
 +				return;
 +			}
@@ -80,8 +80,8 @@ index 8f32464..18a2ca4 100644
 +	fclose(contexts_file);
 +
 +	if (preauth_context == NULL) {
-+		debug("%s: Unable to find 'privsep_preauth' option in"
-+		    " SELinux context file", __func__);
++		debug_f("Unable to find 'privsep_preauth' option in"
++		    " SELinux context file");
 +		return;
 +	}
 +
@@ -101,10 +101,11 @@ index 22ea8ef..1fc963d 100644
  	if ((cx = index(cx + 1, ':')))
  		strlcat(newctx, cx, newlen);
 -	debug3("%s: setting context from '%s' to '%s'", __func__,
-+	debug("%s: setting context from '%s' to '%s'", __func__,
++	debug_f("setting context from '%s' to '%s'",
  	    oldctx, newctx);
  	if (setcon(newctx) < 0)
- 		switchlog("%s: setcon %s from %s failed with %s", __func__,
+ 		do_log2(log_level, "%s: setcon %s from %s failed with %s",
+		    __func__, newctx, oldctx, strerror(errno));
 diff --git a/openbsd-compat/port-linux.h b/openbsd-compat/port-linux.h
 index cb51f99..8b7cda2 100644
 --- a/openbsd-compat/port-linux.h

@@ -48,5 +48,5 @@ Author: Harald Freudenberger <freude@de.ibm.com>
 +#endif
  	}
  	(void) closedir(dirp);
-     } else
+ 	return;
 

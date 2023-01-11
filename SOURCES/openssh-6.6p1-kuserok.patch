@@ -182,7 +182,7 @@ diff -up openssh-7.4p1/servconf.c.kuserok openssh-7.4p1/servconf.c
 +	options->use_kuserok = -1;
  	options->password_authentication = -1;
  	options->kbd_interactive_authentication = -1;
- 	options->challenge_response_authentication = -1;
+	options->permit_empty_passwd = -1;
 @@ -278,6 +279,8 @@ fill_default_server_options(ServerOption
  	if (options->gss_kex_algorithms == NULL)
  		options->gss_kex_algorithms = strdup(GSS_KEX_DEFAULT_KEX);
@@ -193,9 +193,9 @@ diff -up openssh-7.4p1/servconf.c.kuserok openssh-7.4p1/servconf.c
  		options->password_authentication = 1;
  	if (options->kbd_interactive_authentication == -1)
 @@ -399,7 +402,7 @@ typedef enum {
- 	sPermitRootLogin, sLogFacility, sLogLevel,
- 	sRhostsRSAAuthentication, sRSAAuthentication,
- 	sKerberosAuthentication, sKerberosOrLocalPasswd, sKerberosTicketCleanup,
+	sPort, sHostKeyFile, sLoginGraceTime,
+	sPermitRootLogin, sLogFacility, sLogLevel, sLogVerbose,
+	sKerberosAuthentication, sKerberosOrLocalPasswd, sKerberosTicketCleanup,
 -	sKerberosGetAFSToken, sKerberosUniqueCCache,
 +	sKerberosGetAFSToken, sKerberosUniqueCCache, sKerberosUseKuserok,
  	sChallengeResponseAuthentication,
@@ -217,16 +217,16 @@ diff -up openssh-7.4p1/servconf.c.kuserok openssh-7.4p1/servconf.c
  	{ "kerberostgtpassing", sUnsupported, SSHCFG_GLOBAL },
  	{ "afstokenpassing", sUnsupported, SSHCFG_GLOBAL },
 @@ -1644,6 +1649,10 @@ process_server_config_line(ServerOptions
- 		*activep = value;
- 		break;
- 
+		}
+		break;
+
 +	case sKerberosUseKuserok:
 +		intptr = &options->use_kuserok;
 +		goto parse_flag;
 +
- 	case sPermitListen:
- 	case sPermitOpen:
- 		if (opcode == sPermitListen) {
+	case sMatch:
+		if (cmdline)
+			fatal("Match directive not supported as a command-line "
 @@ -2016,6 +2025,7 @@ copy_set_server_options(ServerOptions *d
  	M_CP_INTOPT(client_alive_interval);
  	M_CP_INTOPT(ip_qos_interactive);
@@ -286,4 +286,4 @@ diff -up openssh-7.4p1/sshd_config.kuserok openssh-7.4p1/sshd_config
 +#KerberosUseKuserok yes
  
  # GSSAPI options
- GSSAPIAuthentication yes
+ #GSSAPIAuthentication no

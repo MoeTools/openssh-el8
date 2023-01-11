@@ -1,0 +1,110 @@
+diff -up openssh-8.7p1/sshkey.c.evpgenrsa openssh-8.7p1/sshkey.c
+--- openssh-8.7p1/sshkey.c.evpgenrsa	2022-06-30 15:14:58.200518353 +0200
++++ openssh-8.7p1/sshkey.c	2022-06-30 15:24:31.499641196 +0200
+@@ -1657,7 +1657,8 @@ sshkey_cert_type(const struct sshkey *k)
+ static int
+ rsa_generate_private_key(u_int bits, RSA **rsap)
+ {
+-	RSA *private = NULL;
++	EVP_PKEY_CTX *ctx = NULL;
++	EVP_PKEY *res = NULL;
+ 	BIGNUM *f4 = NULL;
+ 	int ret = SSH_ERR_INTERNAL_ERROR;
+ 
+@@ -1667,20 +1668,42 @@ rsa_generate_private_key(u_int bits, RSA
+ 	    bits > SSHBUF_MAX_BIGNUM * 8)
+ 		return SSH_ERR_KEY_LENGTH;
+ 	*rsap = NULL;
+-	if ((private = RSA_new()) == NULL || (f4 = BN_new()) == NULL) {
++
++	if ((ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL)) == NULL
++		|| (f4 = BN_new()) == NULL || !BN_set_word(f4, RSA_F4)) {
+ 		ret = SSH_ERR_ALLOC_FAIL;
+ 		goto out;
+ 	}
+-	if (!BN_set_word(f4, RSA_F4) ||
+-	    !RSA_generate_key_ex(private, bits, f4, NULL)) {
++
++	if (EVP_PKEY_keygen_init(ctx) <= 0) {
++		ret = SSH_ERR_LIBCRYPTO_ERROR;
++		goto out;
++	}
++
++	if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits) <= 0) {
++		ret = SSH_ERR_KEY_LENGTH;
++		goto out;
++	}
++
++	if (EVP_PKEY_CTX_set1_rsa_keygen_pubexp(ctx, f4) <= 0)
++		goto out;
++
++	if (EVP_PKEY_keygen(ctx, &res) <= 0) {
++		ret = SSH_ERR_LIBCRYPTO_ERROR;
++		goto out;
++	}
++
++	/* This function is deprecated in OpenSSL 3.0 but OpenSSH doesn't worry about it*/
++	*rsap = EVP_PKEY_get1_RSA(res);
++	if (*rsap) {
++		ret = 0;
++	} else {
+ 		ret = SSH_ERR_LIBCRYPTO_ERROR;
+ 		goto out;
+ 	}
+-	*rsap = private;
+-	private = NULL;
+-	ret = 0;
+  out:
+-	RSA_free(private);
++	EVP_PKEY_CTX_free(ctx);
++	EVP_PKEY_free(res);
+ 	BN_free(f4);
+ 	return ret;
+ }
+@@ -1820,7 +1820,8 @@ sshkey_ecdsa_key_to_nid(EC_KEY *k)
+ static int
+ ecdsa_generate_private_key(u_int bits, int *nid, EC_KEY **ecdsap)
+ {
+-	EC_KEY *private;
++	EVP_PKEY_CTX *ctx = NULL;
++	EVP_PKEY *res = NULL;
+ 	int ret = SSH_ERR_INTERNAL_ERROR;
+ 
+ 	if (nid == NULL || ecdsap == NULL)
+@@ -1828,20 +1829,29 @@ ecdsa_generate_private_key(u_int bits, i
+ 	if ((*nid = sshkey_ecdsa_bits_to_nid(bits)) == -1)
+ 		return SSH_ERR_KEY_LENGTH;
+ 	*ecdsap = NULL;
+-	if ((private = EC_KEY_new_by_curve_name(*nid)) == NULL) {
++
++	if ((ctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL)) == NULL) {
+ 		ret = SSH_ERR_ALLOC_FAIL;
+ 		goto out;
+ 	}
+-	if (EC_KEY_generate_key(private) != 1) {
++
++	if (EVP_PKEY_keygen_init(ctx) <= 0 || EVP_PKEY_CTX_set_group_name(ctx, OBJ_nid2sn(*nid)) <= 0
++	   || EVP_PKEY_keygen(ctx, &res) <= 0) {
++		ret = SSH_ERR_LIBCRYPTO_ERROR;
++		goto out;
++	}
++	/* This function is deprecated in OpenSSL 3.0 but OpenSSH doesn't worry about it*/
++	*ecdsap = EVP_PKEY_get1_EC_KEY(res);
++	if (*ecdsap) {
++		EC_KEY_set_asn1_flag(*ecdsap, OPENSSL_EC_NAMED_CURVE);
++		ret = 0;
++	} else {
+ 		ret = SSH_ERR_LIBCRYPTO_ERROR;
+ 		goto out;
+ 	}
+-	EC_KEY_set_asn1_flag(private, OPENSSL_EC_NAMED_CURVE);
+-	*ecdsap = private;
+-	private = NULL;
+-	ret = 0;
+  out:
+-	EC_KEY_free(private);
++	EVP_PKEY_CTX_free(ctx);
++	EVP_PKEY_free(res);
+ 	return ret;
+ }
+ # endif /* OPENSSL_HAS_ECC */

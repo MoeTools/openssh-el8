@@ -1,0 +1,156 @@
+diff --color -rup a/compat.c b/compat.c
+--- a/compat.c	2021-08-20 06:03:49.000000000 +0200
++++ b/compat.c	2022-07-14 17:39:23.770268440 +0200
+@@ -157,11 +157,12 @@ compat_banner(struct ssh *ssh, const cha
+ 	debug_f("no match: %s", version);
+ }
+ 
++/* Always returns pointer to allocated memory, caller must free. */
+ char *
+ compat_cipher_proposal(struct ssh *ssh, char *cipher_prop)
+ {
+ 	if (!(ssh->compat & SSH_BUG_BIGENDIANAES))
+-		return cipher_prop;
++		return xstrdup(cipher_prop);
+ 	debug2_f("original cipher proposal: %s", cipher_prop);
+ 	if ((cipher_prop = match_filter_denylist(cipher_prop, "aes*")) == NULL)
+ 		fatal("match_filter_denylist failed");
+@@ -171,11 +172,12 @@ compat_cipher_proposal(struct ssh *ssh,
+ 	return cipher_prop;
+ }
+ 
++/* Always returns pointer to allocated memory, caller must free. */
+ char *
+ compat_pkalg_proposal(struct ssh *ssh, char *pkalg_prop)
+ {
+ 	if (!(ssh->compat & SSH_BUG_RSASIGMD5))
+-		return pkalg_prop;
++		return xstrdup(pkalg_prop);
+ 	debug2_f("original public key proposal: %s", pkalg_prop);
+ 	if ((pkalg_prop = match_filter_denylist(pkalg_prop, "ssh-rsa")) == NULL)
+ 		fatal("match_filter_denylist failed");
+@@ -185,21 +187,26 @@ compat_pkalg_proposal(struct ssh *ssh, c
+ 	return pkalg_prop;
+ }
+ 
++/* Always returns pointer to allocated memory, caller must free. */
+ char *
+ compat_kex_proposal(struct ssh *ssh, char *p)
+ {
++	char *cp = NULL;
++
+ 	if ((ssh->compat & (SSH_BUG_CURVE25519PAD|SSH_OLD_DHGEX)) == 0)
+-		return p;
++		return xstrdup(p);
+ 	debug2_f("original KEX proposal: %s", p);
+ 	if ((ssh->compat & SSH_BUG_CURVE25519PAD) != 0)
+ 		if ((p = match_filter_denylist(p,
+ 		    "curve25519-sha256@libssh.org")) == NULL)
+ 			fatal("match_filter_denylist failed");
+ 	if ((ssh->compat & SSH_OLD_DHGEX) != 0) {
++		cp = p;
+ 		if ((p = match_filter_denylist(p,
+ 		    "diffie-hellman-group-exchange-sha256,"
+ 		    "diffie-hellman-group-exchange-sha1")) == NULL)
+ 			fatal("match_filter_denylist failed");
++		free(cp);
+ 	}
+ 	debug2_f("compat KEX proposal: %s", p);
+ 	if (*p == '\0')
+diff --color -rup a/sshconnect2.c b/sshconnect2.c
+--- a/sshconnect2.c	2022-07-14 17:38:43.241496549 +0200
++++ b/sshconnect2.c	2022-07-14 17:39:23.772268479 +0200
+@@ -222,6 +222,7 @@ ssh_kex2(struct ssh *ssh, char *host, st
+ {
+ 	char *myproposal[PROPOSAL_MAX] = { KEX_CLIENT };
+ 	char *s, *all_key;
++	char *prop_kex = NULL, *prop_enc = NULL, *prop_hostkey = NULL;
+ 	int r, use_known_hosts_order = 0;
+ 
+ #if defined(GSSAPI) && defined(WITH_OPENSSL)
+@@ -252,10 +253,9 @@ ssh_kex2(struct ssh *ssh, char *host, st
+ 
+ 	if ((s = kex_names_cat(options.kex_algorithms, "ext-info-c")) == NULL)
+ 		fatal_f("kex_names_cat");
+-	myproposal[PROPOSAL_KEX_ALGS] = compat_kex_proposal(ssh, s);
++	myproposal[PROPOSAL_KEX_ALGS] = prop_kex = compat_kex_proposal(ssh, s);
+ 	myproposal[PROPOSAL_ENC_ALGS_CTOS] =
+-	    compat_cipher_proposal(ssh, options.ciphers);
+-	myproposal[PROPOSAL_ENC_ALGS_STOC] =
++	    myproposal[PROPOSAL_ENC_ALGS_STOC] = prop_enc =
+ 	    compat_cipher_proposal(ssh, options.ciphers);
+ 	myproposal[PROPOSAL_COMP_ALGS_CTOS] =
+ 	    myproposal[PROPOSAL_COMP_ALGS_STOC] =
+@@ -264,12 +264,12 @@ ssh_kex2(struct ssh *ssh, char *host, st
+ 	    myproposal[PROPOSAL_MAC_ALGS_STOC] = options.macs;
+ 	if (use_known_hosts_order) {
+ 		/* Query known_hosts and prefer algorithms that appear there */
+-		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] =
++		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = prop_hostkey =
+ 		    compat_pkalg_proposal(ssh,
+ 		    order_hostkeyalgs(host, hostaddr, port, cinfo));
+ 	} else {
+ 		/* Use specified HostkeyAlgorithms exactly */
+-		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] =
++		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = prop_hostkey =
+ 		    compat_pkalg_proposal(ssh, options.hostkeyalgorithms);
+ 	}
+ 
+@@ -383,6 +383,10 @@ ssh_kex2(struct ssh *ssh, char *host, st
+ 	    (r = ssh_packet_write_wait(ssh)) != 0)
+ 		fatal_fr(r, "send packet");
+ #endif
++	/* Free only parts of proposal that were dynamically allocated here. */
++	free(prop_kex);
++	free(prop_enc);
++	free(prop_hostkey);
+ }
+ 
+ /*
+diff --color -rup a/sshd.c b/sshd.c
+--- a/sshd.c	2022-07-14 17:38:43.242496568 +0200
++++ b/sshd.c	2022-07-14 17:42:07.616388978 +0200
+@@ -2493,14 +2493,15 @@ do_ssh2_kex(struct ssh *ssh)
+ {
+ 	char *myproposal[PROPOSAL_MAX] = { KEX_SERVER };
+ 	struct kex *kex;
++	char *hostkey_types = NULL;
++	char *prop_kex = NULL, *prop_enc = NULL, *prop_hostkey = NULL;
+ 	int r;
+ 
+-	myproposal[PROPOSAL_KEX_ALGS] = compat_kex_proposal(ssh,
++	myproposal[PROPOSAL_KEX_ALGS] = prop_kex = compat_kex_proposal(ssh,
+ 	    options.kex_algorithms);
+-	myproposal[PROPOSAL_ENC_ALGS_CTOS] = compat_cipher_proposal(ssh,
+-	    options.ciphers);
+-	myproposal[PROPOSAL_ENC_ALGS_STOC] = compat_cipher_proposal(ssh,
+-	    options.ciphers);
++	myproposal[PROPOSAL_ENC_ALGS_CTOS] =
++	    myproposal[PROPOSAL_ENC_ALGS_STOC] = prop_enc =
++	    compat_cipher_proposal(ssh, options.ciphers);
+ 	myproposal[PROPOSAL_MAC_ALGS_CTOS] =
+ 	    myproposal[PROPOSAL_MAC_ALGS_STOC] = options.macs;
+ 
+@@ -2513,8 +2514,10 @@ do_ssh2_kex(struct ssh *ssh)
+ 		ssh_packet_set_rekey_limits(ssh, options.rekey_limit,
+ 		    options.rekey_interval);
+ 
+-	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = compat_pkalg_proposal(
+-	    ssh, list_hostkey_types());
++	hostkey_types = list_hostkey_types();
++	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = prop_hostkey =
++	    compat_pkalg_proposal(ssh, hostkey_types);
++	free(hostkey_types);
+ 
+ #if defined(GSSAPI) && defined(WITH_OPENSSL)
+ 	{
+@@ -2606,6 +2609,9 @@ do_ssh2_kex(struct ssh *ssh)
+ 	    (r = ssh_packet_write_wait(ssh)) != 0)
+ 		fatal_fr(r, "send test");
+ #endif
++	free(prop_kex);
++	free(prop_enc);
++	free(prop_hostkey);
+ 	debug("KEX done");
+ }
+ 

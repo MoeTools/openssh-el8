@@ -159,21 +159,23 @@ diff -up openssh-7.4p1/pam_ssh_agent_auth-0.10.3/Makefile.in.psaa-build openssh-
  LIBS=@LIBS@
  AR=@AR@
  AWK=@AWK@
-@@ -61,7 +61,7 @@ INSTALL=@INSTALL@
+@@ -61,8 +61,8 @@ INSTALL=@INSTALL@
  PERL=@PERL@
  SED=@SED@
  ENT=@ENT@
 -LDFLAGS=-L. -Lopenbsd-compat/ @LDFLAGS@
+-LDFLAGS_SHARED = @LDFLAGS_SHARED@
 +LDFLAGS=-L.. -L../openbsd-compat/ @LDFLAGS@
- LDFLAGS_SHARED = @LDFLAGS_SHARED@
++LDFLAGS_SHARED =-Wl,-z,defs @LDFLAGS_SHARED@
  EXEEXT=@EXEEXT@
  
+ INSTALL_SSH_PRNG_CMDS=@INSTALL_SSH_PRNG_CMDS@
 @@ -74,7 +74,7 @@ SSHOBJS=xmalloc.o atomicio.o authfd.o bu
  
  ED25519OBJS=ed25519-donna/ed25519.o
  
--PAM_SSH_AGENT_AUTH_OBJS=pam_user_key_allowed2.o iterate_ssh_agent_keys.o userauth_pubkey_from_id.o pam_user_authorized_keys.o get_command_line.o
-+PAM_SSH_AGENT_AUTH_OBJS=pam_user_key_allowed2.o iterate_ssh_agent_keys.o userauth_pubkey_from_id.o pam_user_authorized_keys.o get_command_line.o secure_filename.o
+-PAM_SSH_AGENT_AUTH_OBJS=pam_user_key_allowed2.o iterate_ssh_agent_keys.o userauth_pubkey_from_id.o pam_user_authorized_keys.o get_command_line.o userauth_pubkey_from_pam.o
++PAM_SSH_AGENT_AUTH_OBJS=pam_user_key_allowed2.o iterate_ssh_agent_keys.o userauth_pubkey_from_id.o pam_user_authorized_keys.o get_command_line.o userauth_pubkey_from_pam.o secure_filename.o
  
  
  MANPAGES_IN	= pam_ssh_agent_auth.pod
@@ -189,8 +191,8 @@ diff -up openssh-7.4p1/pam_ssh_agent_auth-0.10.3/Makefile.in.psaa-build openssh-
  
 -pam_ssh_agent_auth.so: $(LIBCOMPAT) $(SSHOBJS) $(ED25519OBJS) $(PAM_SSH_AGENT_AUTH_OBJS)  pam_ssh_agent_auth.o
 -	$(LD) $(LDFLAGS_SHARED) -o $@ $(SSHOBJS) $(ED25519OBJS) $(PAM_SSH_AGENT_AUTH_OBJS) $(LDFLAGS) -lopenbsd-compat pam_ssh_agent_auth.o $(LIBS) -lpam
-+pam_ssh_agent_auth.so: $(PAM_SSH_AGENT_AUTH_OBJS)  pam_ssh_agent_auth.o ../uidswap.o
-+	$(LD) $(LDFLAGS_SHARED) -o $@ $(PAM_SSH_AGENT_AUTH_OBJS) $(LDFLAGS) -lssh -lopenbsd-compat pam_ssh_agent_auth.o ../uidswap.o $(LIBS) -lpam
++pam_ssh_agent_auth.so: $(PAM_SSH_AGENT_AUTH_OBJS)  pam_ssh_agent_auth.o ../uidswap.o ../ssh-sk-client.o
++	$(LD) $(LDFLAGS_SHARED) -o $@ $(PAM_SSH_AGENT_AUTH_OBJS) ../ssh-sk-client.o $(LDFLAGS) -lssh -lopenbsd-compat pam_ssh_agent_auth.o ../uidswap.o $(LIBS) -lpam
  
  $(MANPAGES): $(MANPAGES_IN)
  	pod2man --section=8 --release=v0.10.3 --name=pam_ssh_agent_auth --official --center "PAM" pam_ssh_agent_auth.pod > pam_ssh_agent_auth.8

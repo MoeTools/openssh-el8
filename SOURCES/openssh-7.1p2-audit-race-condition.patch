@@ -13,33 +13,33 @@ diff -up openssh-7.4p1/monitor_wrap.c.audit-race openssh-7.4p1/monitor_wrap.c
 +	struct sshbuf *m;
 +	int r, ret = 0;
 +
-+	debug3("%s: entering", __func__);
++	debug3_f("entering");
 +	if ((m = sshbuf_new()) == NULL)
-+ 		fatal("%s: sshbuf_new failed", __func__);
++ 		fatal_f("sshbuf_new failed");
 +	do {
 +		blen = atomicio(read, fdin, buf, sizeof(buf));
 +		if (blen == 0) /* closed pipe */
 +			break;
 +		if (blen != sizeof(buf)) {
-+			error("%s: Failed to read the buffer from child", __func__);
++			error_f("Failed to read the buffer from child");
 +			ret = -1;
 +			break;
 +		}
 +
 +		msg_len = get_u32(buf);
 +		if (msg_len > 256 * 1024)
-+			fatal("%s: read: bad msg_len %d", __func__, msg_len);
++			fatal_f("read: bad msg_len %d", msg_len);
 +		sshbuf_reset(m);
 +		if ((r = sshbuf_reserve(m, msg_len, NULL)) != 0)
-+			fatal("%s: buffer error: %s", __func__, ssh_err(r));
++			fatal_fr(r, "buffer error");
 +		if (atomicio(read, fdin, sshbuf_mutable_ptr(m), msg_len) != msg_len) {
-+			error("%s: Failed to read the the buffer content from the child", __func__);
++			error_f("Failed to read the the buffer content from the child");
 +			ret = -1;
 +			break;
 +		}
 +		if (atomicio(vwrite, pmonitor->m_recvfd, buf, blen) != blen || 
 +		    atomicio(vwrite, pmonitor->m_recvfd, sshbuf_mutable_ptr(m), msg_len) != msg_len) {
-+			error("%s: Failed to write the message to the monitor", __func__);
++			error_f("Failed to write the message to the monitor");
 +			ret = -1;
 +			break;
 +		}
@@ -137,7 +137,7 @@ diff -up openssh-7.4p1/session.c.audit-race openssh-7.4p1/session.c
  }
  
 @@ -1538,6 +1565,34 @@ child_close_fds(void)
- 	endpwent();
+ 	log_redirect_stderr_to(NULL);
  }
  
 +void

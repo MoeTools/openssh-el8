@@ -1,0 +1,63 @@
+diff --color -rup a/regress/hostkey-agent.sh b/regress/hostkey-agent.sh
+--- a/regress/hostkey-agent.sh	2021-08-20 06:03:49.000000000 +0200
++++ b/regress/hostkey-agent.sh	2022-07-14 11:58:12.172786060 +0200
+@@ -13,8 +13,12 @@ r=$?
+ grep -vi 'hostkey' $OBJ/sshd_proxy > $OBJ/sshd_proxy.orig
+ echo "HostKeyAgent $SSH_AUTH_SOCK" >> $OBJ/sshd_proxy.orig
+ 
++PUBKEY_ACCEPTED_ALGOS=`$SSH -G "example.com" | \
++    grep -i "PubkeyAcceptedAlgorithms" | cut -d ' ' -f2- | tr "," "|"`
++SSH_ACCEPTED_KEYTYPES=`echo "$SSH_KEYTYPES" | egrep "$PUBKEY_ACCEPTED_ALGOS"`
++
+ trace "load hostkeys"
+-for k in $SSH_KEYTYPES ; do
++for k in $SSH_ACCEPTED_KEYTYPES ; do
+ 	${SSHKEYGEN} -qt $k -f $OBJ/agent-key.$k -N '' || fatal "ssh-keygen $k"
+ 	(
+ 		printf 'localhost-with-alias,127.0.0.1,::1 '
+@@ -31,7 +35,7 @@ cp $OBJ/known_hosts.orig $OBJ/known_host
+ unset SSH_AUTH_SOCK
+ 
+ for ps in yes; do
+-	for k in $SSH_KEYTYPES ; do
++	for k in $SSH_ACCEPTED_KEYTYPES ; do
+ 		verbose "key type $k privsep=$ps"
+ 		cp $OBJ/sshd_proxy.orig $OBJ/sshd_proxy
+ 		echo "UsePrivilegeSeparation $ps" >> $OBJ/sshd_proxy
+diff --color -rup a/sshconnect2.c b/sshconnect2.c
+--- a/sshconnect2.c	2022-07-14 10:10:07.262975710 +0200
++++ b/sshconnect2.c	2022-07-14 10:10:32.068452067 +0200
+@@ -222,6 +222,7 @@ ssh_kex2(struct ssh *ssh, char *host, st
+ {
+ 	char *myproposal[PROPOSAL_MAX] = { KEX_CLIENT };
+ 	char *s, *all_key;
++	char *hostkeyalgs = NULL, *pkalg = NULL;
+ 	char *prop_kex = NULL, *prop_enc = NULL, *prop_hostkey = NULL;
+ 	int r, use_known_hosts_order = 0;
+ 
+@@ -264,14 +265,19 @@ ssh_kex2(struct ssh *ssh, char *host, st
+ 	    myproposal[PROPOSAL_MAC_ALGS_STOC] = options.macs;
+ 	if (use_known_hosts_order) {
+ 		/* Query known_hosts and prefer algorithms that appear there */
+-		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = prop_hostkey =
+-		    compat_pkalg_proposal(ssh,
+-		    order_hostkeyalgs(host, hostaddr, port, cinfo));
++		if ((hostkeyalgs = order_hostkeyalgs(host, hostaddr, port, cinfo)) == NULL)
++			fatal_f("order_hostkeyalgs");
++		pkalg = match_filter_allowlist(hostkeyalgs, options.pubkey_accepted_algos);
++		free(hostkeyalgs);
+ 	} else {
+-		/* Use specified HostkeyAlgorithms exactly */
+-		myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = prop_hostkey =
+-		    compat_pkalg_proposal(ssh, options.hostkeyalgorithms);
++		/* Use specified HostkeyAlgorithms */
++		pkalg = match_filter_allowlist(options.hostkeyalgorithms, options.pubkey_accepted_algos);
+ 	}
++	if (pkalg == NULL)
++		fatal_f("match_filter_allowlist");
++	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = prop_hostkey =
++	    compat_pkalg_proposal(ssh, pkalg);
++	free(pkalg);
+ 
+ #if defined(GSSAPI) && defined(WITH_OPENSSL)
+ 	if (options.gss_keyex) {

@@ -59,7 +59,7 @@ diff -up openssh-7.4p1/channels.c.x11max openssh-7.4p1/channels.c
  		ssh_gai_strerror(gaierr));
 @@ -4457,7 +4463,7 @@ x11_connect_display(void)
  		/* Connect it to the display. */
- 		if (connect(sock, ai->ai_addr, ai->ai_addrlen) < 0) {
+ 		if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
  			debug2("connect %.100s port %u: %.100s", buf,
 -			    6000 + display_number, strerror(errno));
 +			    X11_PORT_MIN + display_number, strerror(errno));
@@ -197,7 +197,7 @@ diff -up openssh-7.4p1/sshd_config.5.x11max openssh-7.4p1/sshd_config.5
 +.Cm X11MaxDisplays ,
  .Cm X11Forwarding
  and
- .Cm X11UseLocalHost .
+ .Cm X11UseLocalhost .
 @@ -1566,6 +1567,12 @@ Specifies the first display number avail
  X11 forwarding.
  This prevents sshd from interfering with real X11 servers.
