@@ -65,22 +65,22 @@
 %endif
 
 # Do not forget to bump pam_ssh_agent_auth release if you rewind the main package release to 1
-%global openssh_ver 8.0p1
-%global openssh_rel 16
-%global pam_ssh_agent_ver 0.10.3
-%global pam_ssh_agent_rel 7
+%global openssh_ver 8.7p1
+%global openssh_rel 24
+%global pam_ssh_agent_ver 0.10.4
+%global pam_ssh_agent_rel 5
 
 Summary: An open source implementation of SSH protocol version 2
 Name: openssh
 Version: %{openssh_ver}
 Release: %{openssh_rel}%{?dist}%{?rescue_rel}
 URL: http://www.openssh.com/portable.html
-#URL1: http://pamsshagentauth.sourceforge.net
+#URL1: https://github.com/jbeverly/pam_ssh_agent_auth/
 Source0: ftp://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-%{version}.tar.gz
 Source1: ftp://ftp.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-%{version}.tar.gz.asc
 Source2: sshd.pam
-Source3: DJM-GPG-KEY.gpg
-Source4: http://prdownloads.sourceforge.net/pamsshagentauth/pam_ssh_agent_auth/pam_ssh_agent_auth-%{pam_ssh_agent_ver}.tar.bz2
+Source3: gpgkey-736060BA.gpg
+Source4: https://github.com/jbeverly/pam_ssh_agent_auth/archive/pam_ssh_agent_auth-%{pam_ssh_agent_ver}.tar.gz
 Source5: pam_ssh_agent-rmheaders
 Source6: ssh-keycat.pam
 Source7: sshd.sysconfig
@@ -91,6 +91,7 @@ Source12: sshd-keygen@.service
 Source13: sshd-keygen
 Source14: sshd.tmpfiles
 Source15: sshd-keygen.target
+Source16: ssh-agent.service
 
 #https://bugzilla.mindrot.org/show_bug.cgi?id=2581
 Patch100: openssh-6.7p1-coverity.patch
@@ -117,6 +118,8 @@ Patch306: pam_ssh_agent_auth-0.10.2-compat.patch
 # Fix NULL dereference from getpwuid() return value
 # https://sourceforge.net/p/pamsshagentauth/bugs/22/
 Patch307: pam_ssh_agent_auth-0.10.2-dereference.patch
+# https://bugzilla.redhat.com/show_bug.cgi?id=2070113
+Patch308: pam_ssh_agent_auth-0.10.4-rsasha2.patch
 
 #https://bugzilla.mindrot.org/show_bug.cgi?id=1641 (WONTFIX)
 Patch400: openssh-7.8p1-role-mls.patch
@@ -156,7 +159,7 @@ Patch713: openssh-6.6p1-ctr-cavstest.patch
 # add SSH KDF CAVS test driver
 Patch714: openssh-6.7p1-kdf-cavs.patch
 
-# GSSAPI Key Exchange (RFC 4462 + draft-ietf-curdle-gss-keyex-sha2-08)
+# GSSAPI Key Exchange (RFC 4462 + RFC 8732)
 # from https://github.com/openssh-gsskex/openssh-gsskex/tree/fedora/master
 Patch800: openssh-8.0p1-gssapi-keyex.patch
 #http://www.mail-archive.com/kerberos@mit.edu/msg17591.html
@@ -185,8 +188,6 @@ Patch919: openssh-6.6.1p1-scp-non-existing-directory.patch
 Patch922: openssh-6.8p1-sshdT-output.patch
 # Add sftp option to force mode of created files (#1191055)
 Patch926: openssh-6.7p1-sftp-force-permission.patch
-# Restore compatible default (#89216)
-Patch929: openssh-6.9p1-permit-root-login.patch
 # make s390 use /dev/ crypto devices -- ignore closefrom
 Patch939: openssh-7.2p2-s390-closefrom.patch
 # Move MAX_DISPLAYS to a configuration option (#1341302)
@@ -198,80 +199,87 @@ Patch949: openssh-7.6p1-cleanup-selinux.patch
 # Sandbox adjustments for s390 and audit
 Patch950: openssh-7.5p1-sandbox.patch
 # PKCS#11 URIs (upstream #2817, 2nd iteration)
+# https://github.com/Jakuje/openssh-portable/commits/jjelen-pkcs11
+# git show > ~/devel/fedora/openssh/openssh-8.0p1-pkcs11-uri.patch
 Patch951: openssh-8.0p1-pkcs11-uri.patch
 # Unbreak scp between two IPv6 hosts (#1620333)
 Patch953: openssh-7.8p1-scp-ipv6.patch
-# ssh-copy-id is unmaintained: Aggreagete patches
-#  - do not return 0 if the write fails (full disk)
-#  - shellcheck reports (upstream #2902)
-Patch958: openssh-7.9p1-ssh-copy-id.patch
-# Verify the SCP vulnerabilities are fixed in the package testsuite
-# https://bugzilla.mindrot.org/show_bug.cgi?id=3007
-Patch961: openssh-8.0p1-scp-tests.patch
 # Mention crypto-policies in manual pages (#1668325)
 Patch962: openssh-8.0p1-crypto-policies.patch
 # Use OpenSSL high-level API to produce and verify signatures (#1707485)
 Patch963: openssh-8.0p1-openssl-evp.patch
 # Use OpenSSL KDF (#1631761)
 Patch964: openssh-8.0p1-openssl-kdf.patch
-# Use new OpenSSL for PEM export to avoid MD5 dependency (#1712436)
-Patch965: openssh-8.0p1-openssl-pem.patch
-# Seed from dev/random if requested (#1785655)
-Patch966: openssh-8.0p1-entropy.patch
-# Unbreak ssh-keyscan RSA keys without SHA1 (#1744108)
-Patch967: openssh-8.0p1-keyscan-rsa-sha2.patch
-# Detect proxyJump loops in configuration files (#1804099)
-Patch968: openssh-8.0p1-proxyjump-loops.patch
-# ssh-keygen should default to SHA2-based signature algorithm (#1790610)
-Patch969: openssh-8.0p1-keygen-sha2.patch
-# RDomain is not suported on non-OpenBSD (#1807686)
-# https://bugzilla.mindrot.org/show_bug.cgi?id=3126
-Patch970: openssh-8.0p1-rdomain.patch
-# Do not fail X11 forwarding if IPv6 is disabled (#1662189)
-# https://bugzilla.mindrot.org/show_bug.cgi?id=2143
-Patch971: openssh-8.0p1-x11-without-ipv6.patch
-# Client window fix (#1913041)
-Patch972: openssh-8.0p1-channel-limits.patch
-# SFTP sort upon the modification time (#1909988)
-# https://bugzilla.mindrot.org/show_bug.cgi?id=3248
-Patch973: openssh-8.0p1-sftp-timespeccmp.patch
+# sk-dummy.so built with -fvisibility=hidden does not work
+Patch965: openssh-8.2p1-visibility.patch
+# Do not break X11 without IPv6
+Patch966: openssh-8.2p1-x11-without-ipv6.patch
 # ssh-keygen printing fingerprint issue with Windows keys (#1901518)
 Patch974: openssh-8.0p1-keygen-strip-doseol.patch
 # sshd provides PAM an incorrect error code (#1879503)
 Patch975: openssh-8.0p1-preserve-pam-errors.patch
-# ssh incorrectly restores the blocking mode on standard output (#1942901)
-Patch976: openssh-8.0p1-restore-nonblock.patch
-# CVE 2020-14145
-Patch977: openssh-8.0p1-cve-2020-14145.patch
-# sshd -T requires -C when "Match" is used in sshd_config (#1836277)
-Patch978: openssh-8.0p1-sshd_config.patch
+# Use SFTP protocol by default for scp command
+Patch976: openssh-8.7p1-sftp-default-protocol.patch
+# Implement kill switch for SCP protocol
+Patch977: openssh-8.7p1-scp-kill-switch.patch
 # CVE-2021-41617
-Patch980: openssh-8.7p1-upstream-cve-2021-41617.patch
-# support sshd Include directive
+Patch978: openssh-8.7p1-upstream-cve-2021-41617.patch
+# fix for `ssh-keygen -Y find-principals -f /dev/null -s /dev/null` (#2024902)
+Patch979: openssh-8.7p1-find-principals-fix.patch
+# Create non-existent directories when scp works in sftp mode and some more minor fixes
 # upstream commits:
-# c2bd7f74b0e0f3a3ee9d19ac549e6ba89013abaf~1..677d0ece67634262b3b96c3cd6410b19f3a603b7
-# 8bdc3bb7cf4c82c3344cfcb82495a43406e87e83
-# 47adfdc07f4f8ea0064a1495500244de08d311ed~1..7af1e92cd289b7eaa9a683e9a6f2fddd98f37a01
-Patch981: openssh-8.0p1-sshd_include.patch
-# Port upstream ClientAliveCountMax behaviour
-# upstream commit:
-# 69334996ae203c51c70bf01d414c918a44618f8e
-Patch982: openssh-8.0p1-client_alive_count_max.patch
-# add a local implementation of BSD realpath() for sftp-server
-# use ahead of OpenBSD's realpath changing to match POSIX
-# upstream commits:
-# 569b650f93b561c09c655f83f128e1dfffe74101
-# 53a6ebf1445a857f5e487b18ee5e5830a9575149
-# 5428b0d239f6b516c81d1dd15aa9fe9e60af75d4
-Patch983: openssh-8.0p1-sftp-realpath.patch
-# include caveat for crypto-policy in sshd manpage (#2044354)
-Patch984: openssh-8.0p1-crypto-policy-doc.patch
-# minimize the use of SHA1 as a proof of possession for RSA key (#2093897)
+# ba61123eef9c6356d438c90c1199a57a0d7bcb0a
+# 63670d4e9030bcee490d5a9cce561373ac5b3b23
+# ac7c9ec894ed0825d04ef69c55babb49bab1d32e
+Patch980: openssh-8.7p1-sftpscp-dir-create.patch
+# Workaround for lack of sftp_realpath in older versions of RHEL
+# https://bugzilla.redhat.com/show_bug.cgi?id=2038854
+# https://github.com/openssh/openssh-portable/pull/299
+# downstream only
+Patch981: openssh-8.7p1-recursive-scp.patch
+# https://github.com/djmdjm/openssh-wip/pull/13
+Patch982: openssh-8.7p1-minrsabits.patch
+# downstream only
+Patch983: openssh-8.7p1-evpgenkey.patch
+# downstream only, IBMCA tentative fix
+# From https://bugzilla.redhat.com/show_bug.cgi?id=1976202#c14
+Patch984: openssh-8.7p1-ibmca.patch
+
+# Minimize the use of SHA1 as a proof of possession for RSA key (#2031868)
 # upstream commits:
 # 291721bc7c840d113a49518f3fca70e86248b8e8
 # 0fa33683223c76289470a954404047bc762be84c
-# f8df0413f0a057b6a3d3dd7bd8bc7c5d80911d3a
-Patch985: openssh-8.7p1-minimize-sha1-use.patch
+# Avoid dubious diagnostics on update known hosts (#2115246)
+# 8832402bd500d1661ccc80a476fd563335ef6cdc
+Patch1000: openssh-8.7p1-minimize-sha1-use.patch
+# Fix for scp clearing file when src and dest are the same (#2056884)
+# upstream commits:
+# 7b1cbcb7599d9f6a3bbad79d412604aa1203b5ee
+Patch1001: openssh-8.7p1-scp-clears-file.patch
+# Add missing options from ssh_config into ssh manpage
+# upstream bug:
+# https://bugzilla.mindrot.org/show_bug.cgi?id=3455
+Patch1002: openssh-8.7p1-ssh-manpage.patch
+# Always return allocated strings from the kex filtering so that we can free them
+# upstream commits:
+# 486c4dc3b83b4b67d663fb0fa62bc24138ec3946
+# 6c31ba10e97b6953c4f325f526f3e846dfea647a
+# 322964f8f2e9c321e77ebae1e4d2cd0ccc5c5a0b
+Patch1003: openssh-8.7p1-mem-leak.patch
+# Reenable MONITOR_REQ_GSSCHECKMIC after gssapi-with-mic failures
+# upstream MR:
+# https://github.com/openssh-gsskex/openssh-gsskex/pull/21
+Patch1004: openssh-8.7p1-gssapi-auth.patch
+# Fix host-based authentication with rsa keys
+# upstream commits:
+# 7aa7b096cf2bafe2777085abdeed5ce00581f641
+# d9dbb5d9a0326e252d3c7bc13beb9c2434f59409
+# fdb1d58d0d3888b042e5a500f6ce524486aaf782
+Patch1005: openssh-8.7p1-host-based-auth.patch
+# Don't propose disallowed algorithms during hostkey negotiation
+# upstream MR:
+# https://github.com/openssh/openssh-portable/pull/323
+Patch1006: openssh-8.7p1-negotiate-supported-algs.patch
 
 License: BSD
 Group: Applications/Internet
@@ -300,6 +308,7 @@ BuildRequires: perl-podlators
 BuildRequires: systemd-devel
 BuildRequires: gcc
 BuildRequires: p11-kit-devel
+BuildRequires: libfido2-devel
 Recommends: p11-kit
 
 %if %{kerberos5}
@@ -424,13 +433,14 @@ gpgv2 --quiet --keyring %{SOURCE3} %{SOURCE1} %{SOURCE0}
 %setup -q -a 4
 
 %if %{pam_ssh_agent}
-pushd pam_ssh_agent_auth-%{pam_ssh_agent_ver}
+pushd pam_ssh_agent_auth-pam_ssh_agent_auth-%{pam_ssh_agent_ver}
 %patch300 -p2 -b .psaa-build
 %patch301 -p2 -b .psaa-seteuid
 %patch302 -p2 -b .psaa-visibility
 %patch306 -p2 -b .psaa-compat
 %patch305 -p2 -b .psaa-agent
 %patch307 -p2 -b .psaa-deref
+%patch308 -p2 -b .rsasha2
 # Remove duplicate headers and library files
 rm -f $(cat %{SOURCE5})
 popd
@@ -470,7 +480,6 @@ popd
 %patch802 -p1 -b .GSSAPIEnablek5users
 %patch922 -p1 -b .sshdt
 %patch926 -p1 -b .sftp-force-mode
-%patch929 -p1 -b .root-login
 %patch939 -p1 -b .s390-dev
 %patch944 -p1 -b .x11max
 %patch948 -p1 -b .systemd
@@ -478,46 +487,45 @@ popd
 %patch950 -p1 -b .sandbox
 %patch951 -p1 -b .pkcs11-uri
 %patch953 -p1 -b .scp-ipv6
-%patch958 -p1 -b .ssh-copy-id
-%patch961 -p1 -b .scp-tests
 %patch962 -p1 -b .crypto-policies
 %patch963 -p1 -b .openssl-evp
 %patch964 -p1 -b .openssl-kdf
-%patch965 -p1 -b .openssl-pem
-%patch966 -p1 -b .entropy
-%patch967 -p1 -b .keyscan
-%patch968 -p1 -b .proxyjump-loops
-%patch969 -p1 -b .keygen-sha2
-%patch970 -p1 -b .rdomain
-%patch971 -p1 -b .x11-ipv6
-%patch972 -p1 -b .channel-limits
-%patch973 -p1 -b .sftp-timespeccmp
+%patch965 -p1 -b .visibility
+%patch966 -p1 -b .x11-ipv6
 %patch974 -p1 -b .keygen-strip-doseol
 %patch975 -p1 -b .preserve-pam-errors
-%patch976 -p1 -b .restore-nonblock
-%patch977 -p1 -b .cve-2020-14145
-%patch978 -p1 -b .sshd_config
-%patch980 -p1 -b .cve-2021-41617
-%patch981 -p1 -b .sshdinclude
-%patch982 -p1 -b .client_alive_count_max
-%patch983 -p1 -b .sftp-realpath
-%patch984 -p1 -b .crypto-policy-doc
-%patch985 -p1 -b .minimize-sha1-use
+%patch976 -p1 -b .sftp-by-default
+%patch977 -p1 -b .kill-scp
+%patch978 -p1 -b .cve-2021-41617
+%patch979 -p1 -b .find-principals
+%patch980 -p1 -b .sftpdirs
+%patch981 -p1 -b .scp-sftpdirs
+%patch982 -p1 -b .minrsabits
+%patch983 -p1 -b .evpgenrsa
+%patch984 -p1 -b .ibmca
 
 %patch200 -p1 -b .audit
 %patch201 -p1 -b .audit-race
 %patch700 -p1 -b .fips
 
+%patch1000 -p1 -b .minimize-sha1-use
+%patch1001 -p1 -b .scp-clears-file
+%patch1002 -p1 -b .ssh-manpage
+%patch1003 -p1 -b .mem-leak
+%patch1004 -p1 -b .gssapi-auth
+%patch1005 -p1 -b .host-based-auth
+%patch1006 -p1 -b .negotiate-supported-algs
+
 %patch100 -p1 -b .coverity
 
 autoreconf
-pushd pam_ssh_agent_auth-%{pam_ssh_agent_ver}
+pushd pam_ssh_agent_auth-pam_ssh_agent_auth-%{pam_ssh_agent_ver}
 autoreconf
 popd
 
 %build
 # the -fvisibility=hidden is needed for clean build of the pam_ssh_agent_auth
-# and it makes the ssh build more clean and even optimized better
+# it is needed for lib(open)ssh build too since it is linked to the pam module too
 CFLAGS="$RPM_OPT_FLAGS -fvisibility=hidden"; export CFLAGS
 %if %{rescue}
 CFLAGS="$CFLAGS -Os"
@@ -566,6 +574,7 @@ fi
 	--without-hardening `# The hardening flags are configured by system` \
 	--with-systemd \
 	--with-default-pkcs11-provider=yes \
+	--with-security-key-builtin=yes \
 %if %{ldap}
 	--with-ldap \
 %endif
@@ -618,7 +627,7 @@ popd
 %endif
 
 %if %{pam_ssh_agent}
-pushd pam_ssh_agent_auth-%{pam_ssh_agent_ver}
+pushd pam_ssh_agent_auth-pam_ssh_agent_auth-%{pam_ssh_agent_ver}
 LDFLAGS="$SAVE_LDFLAGS"
 %configure --with-selinux \
 	--libexecdir=/%{_libdir}/security \
@@ -638,6 +647,7 @@ make tests
 rm -rf $RPM_BUILD_ROOT
 mkdir -p -m755 $RPM_BUILD_ROOT%{_sysconfdir}/ssh
 mkdir -p -m755 $RPM_BUILD_ROOT%{_sysconfdir}/ssh/ssh_config.d
+mkdir -p -m755 $RPM_BUILD_ROOT%{_sysconfdir}/ssh/sshd_config.d
 mkdir -p -m755 $RPM_BUILD_ROOT%{_libexecdir}/openssh
 mkdir -p -m755 $RPM_BUILD_ROOT%{_var}/empty/sshd
 make install DESTDIR=$RPM_BUILD_ROOT
@@ -650,15 +660,19 @@ install -m644 %{SOURCE2} $RPM_BUILD_ROOT/etc/pam.d/sshd
 install -m644 %{SOURCE6} $RPM_BUILD_ROOT/etc/pam.d/ssh-keycat
 install -m644 %{SOURCE7} $RPM_BUILD_ROOT/etc/sysconfig/sshd
 install -m644 ssh_config_redhat $RPM_BUILD_ROOT/etc/ssh/ssh_config.d/05-redhat.conf
+install -m644 sshd_config_redhat $RPM_BUILD_ROOT/etc/ssh/sshd_config.d/50-redhat.conf
 install -d -m755 $RPM_BUILD_ROOT/%{_unitdir}
 install -m644 %{SOURCE9} $RPM_BUILD_ROOT/%{_unitdir}/sshd@.service
 install -m644 %{SOURCE10} $RPM_BUILD_ROOT/%{_unitdir}/sshd.socket
 install -m644 %{SOURCE11} $RPM_BUILD_ROOT/%{_unitdir}/sshd.service
 install -m644 %{SOURCE12} $RPM_BUILD_ROOT/%{_unitdir}/sshd-keygen@.service
 install -m644 %{SOURCE15} $RPM_BUILD_ROOT/%{_unitdir}/sshd-keygen.target
+install -d -m755 $RPM_BUILD_ROOT/%{_userunitdir}
+install -m644 %{SOURCE16} $RPM_BUILD_ROOT/%{_userunitdir}/ssh-agent.service
 install -m744 %{SOURCE13} $RPM_BUILD_ROOT/%{_libexecdir}/openssh/sshd-keygen
 install -m755 contrib/ssh-copy-id $RPM_BUILD_ROOT%{_bindir}/
 install contrib/ssh-copy-id.1 $RPM_BUILD_ROOT%{_mandir}/man1/
+install -d -m711 ${RPM_BUILD_ROOT}/%{_datadir}/empty.sshd
 install -m644 -D %{SOURCE14} $RPM_BUILD_ROOT%{_tmpfilesdir}/%{name}.conf
 
 %if ! %{no_gnome_askpass}
@@ -679,7 +693,7 @@ rm -f $RPM_BUILD_ROOT/etc/profile.d/gnome-ssh-askpass.*
 perl -pi -e "s|$RPM_BUILD_ROOT||g" $RPM_BUILD_ROOT%{_mandir}/man*/*
 
 %if %{pam_ssh_agent}
-pushd pam_ssh_agent_auth-%{pam_ssh_agent_ver}
+pushd pam_ssh_agent_auth-pam_ssh_agent_auth-%{pam_ssh_agent_ver}
 make install DESTDIR=$RPM_BUILD_ROOT
 popd
 %endif
@@ -700,6 +714,12 @@ getent passwd sshd >/dev/null || \
 
 %postun server
 %systemd_postun_with_restart sshd.service
+
+%post clients
+%systemd_user_post ssh-agent.service
+
+%preun clients
+%systemd_user_preun ssh-agent.service
 
 %files
 %license LICENCE
@@ -730,12 +750,15 @@ getent passwd sshd >/dev/null || \
 %attr(0755,root,root) %{_bindir}/sftp
 %attr(0755,root,root) %{_bindir}/ssh-copy-id
 %attr(0755,root,root) %{_libexecdir}/openssh/ssh-pkcs11-helper
+%attr(0755,root,root) %{_libexecdir}/openssh/ssh-sk-helper
 %attr(0644,root,root) %{_mandir}/man1/ssh-agent.1*
 %attr(0644,root,root) %{_mandir}/man1/ssh-add.1*
 %attr(0644,root,root) %{_mandir}/man1/ssh-keyscan.1*
 %attr(0644,root,root) %{_mandir}/man1/sftp.1*
 %attr(0644,root,root) %{_mandir}/man1/ssh-copy-id.1*
 %attr(0644,root,root) %{_mandir}/man8/ssh-pkcs11-helper.8*
+%attr(0644,root,root) %{_mandir}/man8/ssh-sk-helper.8*
+%attr(0644,root,root) %{_userunitdir}/ssh-agent.service
 %endif
 
 %if ! %{rescue}
@@ -749,6 +772,8 @@ getent passwd sshd >/dev/null || \
 %attr(0644,root,root) %{_mandir}/man8/sshd.8*
 %attr(0644,root,root) %{_mandir}/man8/sftp-server.8*
 %attr(0600,root,root) %config(noreplace) %{_sysconfdir}/ssh/sshd_config
+%dir %attr(0700,root,root) %{_sysconfdir}/ssh/sshd_config.d/
+%attr(0600,root,root) %config(noreplace) %{_sysconfdir}/ssh/sshd_config.d/50-redhat.conf
 %attr(0644,root,root) %config(noreplace) /etc/pam.d/sshd
 %attr(0640,root,root) %config(noreplace) /etc/sysconfig/sshd
 %attr(0644,root,root) %{_unitdir}/sshd.service
@@ -788,124 +813,358 @@ getent passwd sshd >/dev/null || \
 
 %if %{pam_ssh_agent}
 %files -n pam_ssh_agent_auth
-%license pam_ssh_agent_auth-%{pam_ssh_agent_ver}/OPENSSH_LICENSE
+%license pam_ssh_agent_auth-pam_ssh_agent_auth-%{pam_ssh_agent_ver}/OPENSSH_LICENSE
 %attr(0755,root,root) %{_libdir}/security/pam_ssh_agent_auth.so
 %attr(0644,root,root) %{_mandir}/man8/pam_ssh_agent_auth.8*
 %endif
 
 %changelog
-* Wed Jun 29 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.0p1-16
-- Omit client side from minimize-sha1-use.patch to prevent regression (#2093897)
+* Fri Sep 23 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-24
+- Set minimal value of RSA key length via configuration option - support both names
+  Resolves: rhbz#2128352
 
-* Thu Jun 23 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.0p1-15
-- Fix new issues found by static analyzers
+* Thu Sep 22 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-23
+- Set minimal value of RSA key length via configuration option
+  Resolves: rhbz#2128352
 
-* Wed Jun 01 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.0p1-14
-- Upstream: add a local implementation of BSD realpath() for sftp-server (#2064249)
-- Change product name from Fedora to RHEL in openssh-7.8p1-UsePAM-warning.patch (#1953807)
-- Include caveat for crypto-policy in sshd manpage (#2044354)
-- Change log level of FIPS specific log message to verbose (#2050511)
-- Clarify force_file_perms (-m) documentation in sftp-server manpage (#1862504)
-- Minimize the use of SHA1 as a proof of possession for RSA key (#2093897)
+* Tue Aug 16 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-22
+- Avoid spirous message on connecting to the machine with ssh-rsa keys
+  Related: rhbz#2115246
+- Set minimal value of RSA key length via configuration option
+  Related: rhbz#2066882
 
-* Tue Oct 26 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-13
-- Upstream: ClientAliveCountMax=0 disable the connection killing behaviour (#2015828)
+* Thu Aug 04 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-21
+- IBMCA workaround
+  Related: rhbz#1976202
 
-* Wed Oct 20 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-12
-- Add support for "Include" directive in sshd_config file (#1926103)
+* Tue Jul 26 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.7p1-20 + 0.10.4-5
+- Fix openssh-8.7p1-scp-clears-file.patch
+  Related: rhbz#2056884
 
-* Fri Oct 01 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-11
-- CVE-2021-41617 upstream fix (#2008885)
+* Fri Jul 15 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-19 + 0.10.4-5
+- FIX pam_ssh_agent_auth auth for RSA keys
+  Related: rhbz#2070113
 
-* Mon Jun 21 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-10
-- sshd -T requires -C when "Match" is used in sshd_config (#1836277)
+* Thu Jul 14 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.7p1-18
+- Fix new coverity issues
+  Related: rhbz#2068423
 
-* Wed Jun 02 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-9
-- CVE-2020-14145 openssh: Observable Discrepancy leading to an information
-  leak in the algorithm negotiation (#1882252)
-- Hostbased ssh authentication fails if session ID contains a '/' (#1944125)
+* Thu Jul 14 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-17
+- Disable ed25519 and ed25519-sk keys in FIPS mode
+  Related: rhbz#2087915
 
-* Mon Apr 26 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-8
-- ssh doesn't restore the blocking mode on standard output (#1942901)
+* Thu Jul 14 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.7p1-16
+- Don't propose disallowed algorithms during hostkey negotiation
+  Resolves: rhbz#2068423
 
-* Fri Apr 09 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-7 + 0.10.3-7
-- SFTP sort upon the modification time (#1909988)
-- ssh-keygen printing fingerprint issue with Windows keys (#1901518)
-- PIN is lost when iterating over tokens when adding pkcs11 keys to ssh-agent (#1843372)
-- ssh-agent segfaults during ssh-add -s pkcs11 (#1868996)
-- ssh-copy-id could not resolve ipv6 address ends with colon (#1933517)
-- sshd provides PAM an incorrect error code (#1879503)
+* Thu Jul 14 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-15
+- Disable ed25519 and ed25519-sk keys in FIPS mode
+  Related: rhbz#2087915
 
-* Tue Mar 16 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.0p1-6 + 0.10.3-7
-- Openssh client window fix (#1913041)
+* Wed Jul 13 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-14
+- Disable ed25519 and ed25519-sk keys in FIPS mode
+  Related: rhbz#2087915
 
-* Tue Mar 24 2020 Jakub Jelen <jjelen@redhat.com> - 8.0p1-5 + 0.10.3-7
-- Do not print "no slots" warning by default (#1744220)
-- Unbreak connecting using gssapi through proxy commands (#1749862)
-- Document in manual pages that CASignatureAlgorithms are handled by crypto policies (#1790604)
-- Use SHA2-based signature algorithms by default for signing certificates (#1790610)
-- Prevent simple ProxyJump loops in configuration files (#1804099)
-- Teach ssh-keyscan to use SHA2 RSA variants (#1744108)
-- Do not fail hard if getrandom() is not available and no SSH_USE_STRONG_RNG is specified (#1812120)
-- Improve wording of crypto policies references in manual pages (#1812854)
-- Do not break X11 forwarding if IPv6 is disabled (#1662189)
-- Enable SHA2-based GSSAPI key exchange algorithms by default (#1816226)
-- Mark RDomain server configuration option unsupported in RHEL (#1807686)
-- Clarify crypto policies defaults in manual pages (#1724195)
-- Mention RSA SHA2 variants in ssh-keygen manual page (#1665900)
+* Tue Jul 12 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.7p1-13
+- Add reference for policy customization in ssh/sshd_config manpages
+  Resolves: rhbz#1984575
 
-* Wed Jan 08 2020 Jakub Jelen <jjelen@redhat.com> - 8.0p1-4 + 0.10.3-7
-- Restore entropy patch for CC certification (#1785655)
+* Mon Jul 11 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-12
+- Disable sntrup761x25519-sha512 in FIPS mode
+  Related: rhbz#2070628
+- Disable ed25519 and ed25519-sk keys in FIPS mode
+  Related: rhbz#2087915
 
-* Tue Jul 23 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-3 + 0.10.3-7
-- Fix typos in manual pages (#1668325)
-- Use the upstream support for PKCS#8 PEM files alongside with the legacy PEM files (#1712436)
-- Unbreak ssh-keygen -A in FIPS mode (#1732424)
-- Add missing RSA certificate types to offered hostkey types in FIPS mode (#1732449)
+* Mon Jul 11 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.7p1-11
+- Fix scp clearing file when src and dest are the same
+  Resolves: rhbz#2056884
+- Add missing options from ssh_config into ssh manpage
+  Resolves: rhbz#2033372
+- Fix several memory leaks
+  Related: rhbz#2068423
+- Fix gssapi authentication failures
+  Resolves: rhbz#2091023
+- Fix host-based authentication with rsa keys
+  Resolves: rhbz#2088916
 
-* Wed Jun 12 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-2 + 0.10.3-7
-- Allow specifying a pin-value in PKCS #11 URI in ssh-add (#1639698)
-- Whitelist another syscall variant for s390x cryptographic module (ibmca engine) (#1714915)
+* Wed Jun 29 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-10
+- Set minimal value of RSA key length via configuration option
+  Related: rhbz#2066882
+- Use EVP functions for RSA key generation
+  Related: rhbz#2087121
 
-* Tue May 14 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-1 + 0.10.3-7
-- New upstream release (#1691045)
-- Remove support for unused VendorPatchLevel configuration option
-- Fix kerberos cleanup procedures (#1683295)
-- Do not negotiate arbitrary primes with DH GEX in FIPS (#1685096)
-- Several GSSAPI key exchange improvements and sync with Debian
-- Allow to use labels in PKCS#11 URIs even if they do not match on private key (#1671262)
-- Do not fall back to sshd_net_t SELinux context (#1678695)
-- Use FIPS compliant high-level signature OpenSSL API and KDF
-- Mention crypto-policies in manual pages
-- Do not fail if non-FIPS approved algorithm is enabled in FIPS
-- Generate the PEM files in new PKCS#8 format without the need of MD5 (#1712436)
+* Wed Jun 29 2022 Zoltan Fridrich <zfridric@redhat.com> - 8.7p1-9
+- Update minimize-sha1-use.patch to use upstream code
+  Related: rhbz#2031868
+- Change product name from Fedora to RHEL in openssh-7.8p1-UsePAM-warning.patch
+  Resolves: rhbz#2064338
+- Change log level of FIPS specific log message to verbose
+  Resolves: rhbz#2102201
 
-* Mon Nov 26 2018 Jakub Jelen <jjelen@redhat.com> - 7.8p1-4 + 0.10.3-5
-- Unbreak PKCS#11 URI tests (#1648262)
-- Allow to disable RSA signatures with SHA1 (#1648898)
-- Dump missing GSS options from client configuration (#1649505)
-- Minor fixes from Fedora related to GSSAPI and keberos
-- Follow the system-wide PATH settings
+* Mon Feb 21 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-8
+- Workaround for RHEL 8 incompatibility in scp utility in SFTP mode
+  Related: rhbz#2038854
+
+* Mon Feb 07 2022 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-7
+- Switch to SFTP protocol in scp utility by default - upstream fixes
+  Related: rhbz#2001002
+- Workaround for RHEL 8 incompatibility in scp utility in SFTP mode
+  Related: rhbz#2038854
+
+* Tue Dec 21 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-6
+- Fix SSH connection to localhost not possible in FIPS
+  Related: rhbz#2031868
+
+* Mon Nov 29 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-5
+- Fix `ssh-keygen -Y find-principals -f /dev/null -s /dev/null` segfault
+  Related: rhbz#2024902
+
+* Mon Oct 25 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-4
+- Fix memory leaks introduced in OpenSSH 8.7
+  Related: rhbz#2001002
+
+* Tue Oct 19 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-3
+- Disable locale forwarding in default configurations
+  Related: rhbz#2002734
+
+* Fri Oct 01 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-2
+- Upstream fix for CVE-2021-41617
+  Related: rhbz#2008886
+
+* Fri Sep 24 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.7p1-1 + 0.10.4-4
+- New upstream release
+- Switch to SFTP protocol in scp utility by default
+- Enable SCP protocol kill switch
+  Related: rhbz#2001002
+
+* Mon Aug 09 2021 Mohan Boddu <mboddu@redhat.com> - 8.6p1-7.1
+- Rebuilt for IMA sigs, glibc 2.34, aarch64 flags
+  Related: rhbz#1991688
+
+* Wed Jul 28 2021 Florian Weimer <fweimer@redhat.com> - 8.6p1-7
+- Rebuild to pick up OpenSSL 3.0 Beta ABI (#1984097)
+
+* Mon Jun 21 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.6p1-6
+- rebuilt
+
+* Wed Jun 16 2021 Mohan Boddu <mboddu@redhat.com> - 8.6p1-5.1
+- Rebuilt for RHEL 9 BETA for openssl 3.0
+  Related: rhbz#1971065
+
+* Thu Jun 03 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.6p1-5
+- Remove recommendation of p11-kit (#1947904)
+
+* Tue Jun 01 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.6p1-4
+- rebuilt
+
+* Fri May 21 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.6p1-3
+- Hostbased ssh authentication fails if session ID contains a '/' (#1963058)
+
+* Mon May 10 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.6p1-2
+- rebuilt
+
+* Thu May 06 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.6p1-1 + 0.10.4-3
+- New upstream release (#1952957)
+- GSS KEX broken beginning with (GSI-)OpenSSH 8.0p1 (#1957306)
+
+* Fri Apr 16 2021 Mohan Boddu <mboddu@redhat.com> - 8.5p1-3.1
+- Rebuilt for RHEL 9 BETA on Apr 15th 2021. Related: rhbz#1947937
+
+* Tue Apr 13 2021 Dmitry Belyavskiy <dbelyavs@redhat.com> - 8.5p1-3
+- Coverity fixes for 8.5p1 (#1938831)
+
+* Tue Mar 09 2021 Rex Dieter <rdieter@fedoraproject.org> - 8.5p1-2
+- ssh-agent.serivce is user unit (#1761817#27)
+
+* Wed Mar 03 2021 Jakub Jelen <jjelen@redhat.com> - 8.5p1-1 + 0.10.4-2
+- New upstream release (#1934336)
+
+* Tue Mar 02 2021 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 8.4p1-5.2
+- Rebuilt for updated systemd-rpm-macros
+  See https://pagure.io/fesco/issue/2583.
+
+* Tue Jan 26 2021 Fedora Release Engineering <releng@fedoraproject.org> - 8.4p1-5.1
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_34_Mass_Rebuild
+
+* Fri Jan 22 2021 Jakub Jelen <jjelen@redhat.com> - 8.4p1-5 + 0.10.4-1
+- Use /usr/share/empty.sshd instead of /var/empty/sshd
+- Allow emptu labels in PKCS#11 tokens (#1919007)
+- Drop openssh-cavs subpackage
+
+* Tue Dec 01 2020 Jakub Jelen <jjelen@redhat.com> - 8.4p1-4 + 0.10.4-1
+- Remove "PasswordAuthentication yes" from vendor configuration as it is
+  already default and it might be hard to override.
+- Fix broken obsoletes for openssh-ldap (#1902084)
+
+* Thu Nov 19 2020 Jakub Jelen <jjelen@redhat.com> - 8.4p1-3 + 0.10.4-1
+- Unbreak seccomp filter on arm (#1897712)
+- Add a workaround for Debian's broken OpenSSH (#1881301)
+
+* Tue Oct 06 2020 Jakub Jelen <jjelen@redhat.com> - 8.4p1-2 + 0.10.4-1
+- Unbreak ssh-copy-id after a release (#1884231)
+- Remove misleading comment from sysconfig
+
+* Tue Sep 29 2020 Jakub Jelen <jjelen@redhat.com> - 8.4p1-1 + 0.10.4-1
+- New upstream release of OpenSSH and pam_ssh_agent_auth (#1882995)
+
+* Fri Aug 21 2020 Jakub Jelen <jjelen@redhat.com> - 8.3p1-4 + 0.10.3-10
+- Remove openssh-ldap subpackage (#1871025)
+- pkcs11: Do not crash with invalid paths in ssh-agent (#1868996)
+- Clarify documentation about sftp-server -m (#1862504)
+
+* Tue Jul 28 2020 Fedora Release Engineering <releng@fedoraproject.org> - 8.3p1-3.1
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_33_Mass_Rebuild
+
+* Wed Jun 10 2020 Jakub Jelen <jjelen@redhat.com> - 8.3p1-3 + 0.10.3-10
+- Do not lose PIN when more slots match PKCS#11 URI (#1843372)
+- Update to new crypto-policies version on server (using sshd_config include)
+- Move redhat configuraion files to larger number to allow simpler override
+- Move sshd_config include before any other definitions (#1824913)
+
+* Mon Jun 01 2020 Jakub Jelen <jjelen@redhat.com> - 8.3p1-2 + 0.10.3-10
+- Fix crash on cleanup (#1842281)
+
+* Wed May 27 2020 Jakub Jelen <jjelen@redhat.com> - 8.3p1-1 + 0.10.3-10
+- New upstream release (#1840503)
+- Unbreak corner cases of sshd_config include
+- Fix order of gssapi key exchange algorithms
+
+* Wed Apr 08 2020 Jakub Jelen <jjelen@redhat.com> - 8.2p1-3 + 0.10.3-9
+- Simplify reference to crypto policies in configuration files
+- Unbreak gssapi authentication with GSSAPITrustDNS over jump hosts
+- Correctly print FIPS mode initialized in debug mode
+- Enable SHA2-based GSSAPI key exchange methods (#1666781)
+- Do not break X11 forwarding when IPv6 is disabled
+- Remove fipscheck dependency as OpenSSH is no longer FIPS module
+- Improve documentation about crypto policies defaults in manual pages
+
+* Thu Feb 20 2020 Jakub Jelen <jjelen@redhat.com> - 8.2p1-2 + 0.10.3-9
+- Build against libfido2 to unbreak internal u2f support
+
+* Mon Feb 17 2020 Jakub Jelen <jjelen@redhat.com> - 8.2p1-1 + 0.10.3-9
+- New upstrem reelase (#1803290)
+- New /etc/ssh/sshd_config.d drop in directory
+- Support for U2F security keys
+- Correctly report invalid key permissions (#1801459)
+- Do not write bogus information on stderr in FIPS mode (#1778224)
+
+* Mon Feb 03 2020 Jakub Jelen <jjelen@redhat.com> - 8.1p1-4 + 0.10.3-8
+- Unbreak seccomp filter on ARM (#1796267)
+
+* Wed Jan 29 2020 Fedora Release Engineering <releng@fedoraproject.org> - 8.1p1-3.1
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_32_Mass_Rebuild
+
+* Wed Nov 27 2019 Jakub Jelen <jjelen@redhat.com> - 8.1p1-3 + 0.10.3-8
+- Unbreak seccomp filter also on ARM (#1777054)
+
+* Thu Nov 14 2019 Jakub Jelen <jjelen@redhat.com> - 8.1p1-2 + 0.10.3-8
+- Unbreak seccomp filter with latest glibc (#1771946)
+
+* Wed Oct 09 2019 Jakub Jelen <jjelen@redhat.com> - 8.1p1-1 + 0.10.3-8
+- New upstream release (#1759750)
+
+* Thu Jul 25 2019 Fedora Release Engineering <releng@fedoraproject.org> - 8.0p1-8.1
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_31_Mass_Rebuild
+
+* Tue Jul 23 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-8 + 0.10.3-7
+- Use the upstream-accepted version of the PKCS#8 PEM support (#1722285)
+
+* Fri Jul 12 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-7 + 0.10.3-7
+- Use the environment file under /etc/sysconfig for anaconda configuration (#1722928)
+
+* Wed Jul 03 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-6 + 0.10.3-7
+- Provide the entry point for anaconda configuration in service file (#1722928)
+
+* Wed Jun 26 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-5 + 0.10.3-7
+- Disable root password logins (#1722928)
+- Fix typo in manual pages related to crypto-policies
+- Fix the gating test to make sure it removes the test user
+- Cleanu up spec file and get rid of some rpmlint warnings
+
+* Mon Jun 17 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-4 + 0.10.3-7
+- Compatibility with ibmca engine for ECC
+- Generate more modern PEM files using new OpenSSL API
+- Provide correct signature types for RSA keys using SHA2 from agent
+
+* Mon May 27 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-3 + 0.10.3-7
+- Remove problematic patch updating cached pw structure
+- Do not require the labels on the public objects (#1710832)
+
+* Tue May 14 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-2 + 0.10.3-7
+- Use OpenSSL KDF
+- Use high-level OpenSSL API for signatures handling
+- Mention crypto-policies in manual pages instead of hardcoded defaults
+- Verify in package testsuite that SCP vulnerabilities are fixed
+- Do not fail in FIPS mode, when unsupported algorithm is listed in configuration
+
+* Fri Apr 26 2019 Jakub Jelen <jjelen@redhat.com> - 8.0p1-1 + 0.10.3-7
+- New upstream release (#1701072)
+- Removed support for VendroPatchLevel configuration option
+- Significant rework of GSSAPI Key Exchange
+- Significant rework of PKCS#11 URI support
+
+* Mon Mar 11 2019 Jakub Jelen <jjelen@redhat.com> - 7.9p1-5 + 0.10.3.6
+- Fix kerberos cleanup procedures with GSSAPI
+- Update cached passwd structure after PAM authentication
+- Do not fall back to sshd_net_t SELinux context
+- Fix corner cases of PKCS#11 URI implementation
+- Do not negotiate arbitrary primes with DH GEX in FIPS 
+
+* Wed Feb 06 2019 Jakub Jelen <jjelen@redhat.com> - 7.9p1-4 + 0.10.3.6
+- Log when a client requests an interactive session and only sftp is allowed
+- Fix minor issues in ssh-copy-id
+- Enclose redhat specific configuration with Match final block
+
+* Fri Feb 01 2019 Fedora Release Engineering <releng@fedoraproject.org> - 7.9p1-3.2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_30_Mass_Rebuild
+
+* Mon Jan 14 2019 Björn Esser <besser82@fedoraproject.org> - 7.9p1-3.1
+- Rebuilt for libcrypt.so.2 (#1666033)
+
+* Mon Jan 14 2019 Jakub Jelen <jjelen@redhat.com> - 7.9p1-3 + 0.10.3.6
+- Backport Match final to unbreak canonicalization with crypto-policies (#1630166)
+- gsskex: Dump correct option
+- Backport several fixes from 7_9 branch, mostly related to certificate authentication (#1665611)
+- Backport patch for CVE-2018-20685 (#1665786)
+- Correctly initialize ECDSA key structures from PKCS#11
+
+* Wed Nov 14 2018 Jakub Jelen <jjelen@redhat.com> - 7.9p1-2 + 0.10.3-6
+- Fix LDAP configure test (#1642414)
+- Avoid segfault on kerberos authentication failure
+- Reference correct file in configuration example (#1643274)
+- Dump missing GSSAPI configuration options
+- Allow to disable RSA signatures with SHA-1
+
+* Fri Oct 19 2018 Jakub Jelen <jjelen@redhat.com> - 7.9p1-1 + 0.10.3-6
+- New upstream release OpenSSH 7.9p1 (#1632902, #1630166)
+- Honor GSSAPIServerIdentity option for GSSAPI key exchange
+- Do not break gsssapi-keyex authentication method when specified in
+  AuthenticationMethods
+- Follow the system-wide PATH settings (#1633756)
+- Address some coverity issues
 
 * Mon Sep 24 2018 Jakub Jelen <jjelen@redhat.com> - 7.8p1-3 + 0.10.3-5
-- Disable OpenSSH hardening flags and use the ones provided by system (#1630615)
-- Ignore unknown parts of PKCS#11 URI (#1631478)
+- Disable OpenSSH hardening flags and use the ones provided by system
+- Ignore unknown parts of PKCS#11 URI
 - Do not fail with GSSAPI enabled in match blocks (#1580017)
-- Fix the segfaulting cavs test (#1629692)
+- Fix the segfaulting cavs test (#1628962)
 
 * Fri Aug 31 2018 Jakub Jelen <jjelen@redhat.com> - 7.8p1-2 + 0.10.3-5
 - New upstream release fixing CVE 2018-15473
 - Remove unused patches
 - Remove reference to unused enviornment variable SSH_USE_STRONG_RNG
 - Address coverity issues
-- Unbreak scp between two IPv6 hosts (#1620333)
-- Unbreak GSSAPI key exchange (#1624323)
+- Unbreak scp between two IPv6 hosts
+- Unbreak GSSAPI key exchange (#1624344)
 - Unbreak rekeying with GSSAPI key exchange (#1624344)
 
 * Thu Aug 09 2018 Jakub Jelen <jjelen@redhat.com> - 7.7p1-6 + 0.10.3-4
 - Fix listing of kex algoritms in FIPS mode
 - Allow aes-gcm cipher modes in FIPS mode
 - Coverity fixes
+
+* Fri Jul 13 2018 Fedora Release Engineering <releng@fedoraproject.org> - 7.7p1-5.1
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_29_Mass_Rebuild
 
 * Tue Jul 03 2018 Jakub Jelen <jjelen@redhat.com> - 7.7p1-5 + 0.10.3-4
 - Disable manual printing of motd by default (#1591381)
