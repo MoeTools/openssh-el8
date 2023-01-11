@@ -29,9 +29,6 @@
 # Do we want libedit support
 %global libedit 1
 
-# Do we want LDAP support
-%global ldap 1
-
 # Whether to build pam_ssh_agent_auth
 %if 0%{?!nopam:1}
 %global pam_ssh_agent 1
@@ -289,9 +286,6 @@ BuildRequires: gnome-libs-devel
 %endif
 %endif
 
-%if %{ldap}
-BuildRequires: openldap-devel
-%endif
 BuildRequires: autoconf, automake, perl-interpreter, perl-generators, zlib-devel
 BuildRequires: audit-libs-devel >= 2.0.5
 BuildRequires: util-linux, groff
@@ -302,7 +296,7 @@ BuildRequires: systemd-devel
 BuildRequires: gcc make
 BuildRequires: p11-kit-devel
 BuildRequires: libfido2-devel
-#Obsoletes: openssh-ldap < 8.3p1-4
+Obsoletes: openssh-ldap < 8.3p1-4
 Obsoletes: openssh-cavs < 8.4p1-5
 
 %if %{kerberos5}
@@ -338,13 +332,6 @@ Requires(pre): /usr/sbin/useradd
 Requires: pam >= 1.0.1-3
 Requires: crypto-policies >= 20180306-1
 %{?systemd_requires}
-
-%if %{ldap}
-%package ldap
-Summary: A LDAP support for open source SSH server daemon
-Requires: openssh = %{version}-%{release}
-Group: System Environment/Daemons
-%endif
 
 %package keycat
 Summary: A mls keycat backend for openssh
@@ -389,12 +376,6 @@ OpenSSH is a free version of SSH (Secure SHell), a program for logging
 into and executing commands on a remote machine. This package contains
 the secure shell daemon (sshd). The sshd daemon allows SSH clients to
 securely connect to your SSH server.
-
-%if %{ldap}
-%description ldap
-OpenSSH LDAP backend is a way how to distribute the authorized tokens
-among the servers in the network.
-%endif
 
 %description keycat
 OpenSSH mls keycat is backend for using the authorized keys in the
@@ -554,9 +535,6 @@ fi
 	--with-systemd \
 	--with-default-pkcs11-provider=yes \
 	--with-security-key-builtin=yes \
-%if %{ldap}
-	--with-ldap \
-%endif
 %if %{rescue}
 	--without-pam \
 %else
@@ -630,7 +608,6 @@ mkdir -p -m755 $RPM_BUILD_ROOT%{_sysconfdir}/ssh/sshd_config.d
 mkdir -p -m755 $RPM_BUILD_ROOT%{_libexecdir}/openssh
 mkdir -p -m755 $RPM_BUILD_ROOT%{_var}/empty/sshd
 make install DESTDIR=$RPM_BUILD_ROOT
-rm -f $RPM_BUILD_ROOT%{_sysconfdir}/ssh/ldap.conf
 
 install -d $RPM_BUILD_ROOT/etc/pam.d/
 install -d $RPM_BUILD_ROOT/etc/sysconfig/
@@ -761,16 +738,6 @@ getent passwd sshd >/dev/null || \
 %attr(0644,root,root) %{_unitdir}/sshd-keygen@.service
 %attr(0644,root,root) %{_unitdir}/sshd-keygen.target
 %attr(0644,root,root) %{_tmpfilesdir}/openssh.conf
-%endif
-
-%if %{ldap}
-%files ldap
-%doc HOWTO.ldap-keys openssh-lpk-openldap.schema openssh-lpk-sun.schema ldap.conf
-%doc openssh-lpk-openldap.ldif openssh-lpk-sun.ldif
-%attr(0755,root,root) %{_libexecdir}/openssh/ssh-ldap-helper
-%attr(0755,root,root) %{_libexecdir}/openssh/ssh-ldap-wrapper
-%attr(0644,root,root) %{_mandir}/man8/ssh-ldap-helper.8*
-%attr(0644,root,root) %{_mandir}/man5/ssh-ldap.conf.5*
 %endif
 
 %files keycat
